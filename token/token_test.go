@@ -1,4 +1,4 @@
-package idam
+package token
 
 import (
 	"strings"

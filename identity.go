@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/homebot/core/urn"
+	"github.com/homebot/idam/token"
 	iotc_api "github.com/homebot/protobuf/pkg/api"
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 )
@@ -57,7 +58,7 @@ type Identity struct {
 }
 
 // HasToken returns true if the given token is for the identity
-func (i *Identity) HasToken(t *Token) bool {
+func (i *Identity) HasToken(t *token.Token) bool {
 	return i.URN().String() == t.URN.String()
 }
 
