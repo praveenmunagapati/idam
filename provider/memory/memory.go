@@ -23,7 +23,7 @@ type Memory struct {
 	passwords  map[urn.URN][]byte
 }
 
-// Verify authenticates `u` using `password` and, if used, `currentOTP`
+// Verify authenticates `u` using `password` and, if OTP is used, `currentOTP`
 // It implements provider.Authenticator
 func (m *Memory) Verify(u urn.URN, password, currentOTP string) (bool, error) {
 	m.rw.RLock()
@@ -64,19 +64,21 @@ func (m *Memory) Identities() []*idam.Identity {
 }
 
 // Get returns the identity with the given URN
-func (m *Memory) Get(u urn.URN) (*idam.Identity, error) {
+func (m *Memory) Get(u urn.URN) (*idam.Identity, bool, error) {
 	m.rw.RLock()
 	defer m.rw.RUnlock()
 
 	if i, ok := m.identities[u]; ok {
-		return &(*i), nil
+		return &(*i), false, nil
 	}
 
-	return nil, provider.ErrIdentityNotFound
+	_, hasOTP := m.otpSecrets[u]
+
+	return nil, hasOTP, provider.ErrIdentityNotFound
 }
 
 // GetByName returns the identity with the given name
-func (m *Memory) GetByName(n string) (*idam.Identity, error) {
+func (m *Memory) GetByName(n string) (*idam.Identity, bool, error) {
 	u := urn.IdamIdentityResource.BuildURN("", n, n)
 	return m.Get(u)
 }

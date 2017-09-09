@@ -21,9 +21,11 @@ type Provider interface {
 	// Identities returns all identities the provider knows about
 	Identities() []*idam.Identity
 
-	// Get returns the identity for the URN
-	Get(urn.URN) (*idam.Identity, error)
+	// Get returns the identity for the URN and
+	// a boolean indicating if the user has 2FA enabled or not
+	Get(urn.URN) (*idam.Identity, bool, error)
 
-	// GetByName returns the identity with the given name
-	GetByName(string) (*idam.Identity, error)
+	// GetByName returns the identity with the given name and
+	// a boolean indicating if the user has 2FA enabled or not
+	GetByName(string) (*idam.Identity, bool, error)
 }
