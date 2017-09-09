@@ -17,11 +17,11 @@ func TestValidToken(t *testing.T) {
 	groups := []urn.URN{sub}
 	issuer := "authority"
 
-	token, err := NewToken(sub, groups, issuer, time.Now(), "HS256", strings.NewReader(key))
+	token, err := New(sub, groups, issuer, time.Now(), "HS256", strings.NewReader(key))
 	assert.NoError(t, err)
 	assert.NotEqual(t, "", token)
 
-	parsed, err := TokenFromJWT(token, func(t *jwt.Token) (interface{}, error) {
+	parsed, err := FromJWT(token, func(t *jwt.Token) (interface{}, error) {
 		return []byte(key), nil
 	})
 	assert.NoError(t, err)

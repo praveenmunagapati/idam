@@ -65,8 +65,8 @@ func (t *Token) Valid() error {
 	return nil
 }
 
-// TokenFromJWT creates a idam.Token from the given JSON Web Token
-func TokenFromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)) (*Token, error) {
+// FromJWT creates a idam.Token from the given JSON Web Token
+func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)) (*Token, error) {
 	token, err := jwt.Parse(string(tokenData), keyFn)
 	if err != nil {
 		return nil, err
@@ -134,8 +134,8 @@ func TokenFromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, e
 	return t, nil
 }
 
-// NewToken creates a new signed JWT token
-func NewToken(sub urn.URN, groups []urn.URN, issuer string, expire time.Time, alg string, key io.Reader) (string, error) {
+// New creates a new signed JWT token
+func New(sub urn.URN, groups []urn.URN, issuer string, expire time.Time, alg string, key io.Reader) (string, error) {
 	var grps []string
 	for _, g := range groups {
 		grps = append(grps, g.String())
