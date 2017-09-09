@@ -8,6 +8,7 @@ import (
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/provider"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
 
@@ -80,16 +81,56 @@ func (m *Memory) GetByName(n string) (*idam.Identity, error) {
 	return m.Get(u)
 }
 
-// Save a new identity in the memory provider
-func (m *Memory) Save(i *idam.Identity) error {
+// Create a new identity in the memory provider
+func (m *Memory) Create(i *idam.Identity, password string, enableOTP bool) (string, error) {
 	m.rw.Lock()
 	defer m.rw.Unlock()
 
 	if _, ok := m.identities[i.URN()]; ok {
-		return provider.ErrDuplicateIdentity
+		return "", provider.ErrDuplicateIdentity
+	}
+
+	var key *otp.Key
+
+	if enableOTP {
+		var err error
+		key, err = totp.Generate(totp.GenerateOpts{
+			Issuer:      "idam",
+			AccountName: i.Name,
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
 	}
 
 	m.identities[i.URN()] = &(*i)
+	m.passwords[i.URN()] = hash
+
+	if key != nil {
+		m.otpSecrets[i.URN()] = key.Secret()
+		return key.Secret(), nil
+	}
+
+	return "", nil
+}
+
+// Delete deletes the identity with URN `u`
+func (m *Memory) Delete(u urn.URN) error {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	if _, ok := m.identities[u]; !ok {
+		return provider.ErrIdentityNotFound
+	}
+
+	delete(m.identities, u)
+	delete(m.passwords, u)
+	delete(m.otpSecrets, u)
 
 	return nil
 }

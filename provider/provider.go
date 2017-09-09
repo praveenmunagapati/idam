@@ -14,8 +14,6 @@ var (
 	// ErrDuplicateIdentity is returned if an identity with the same URN is already stored
 	// in the provider
 	ErrDuplicateIdentity = errors.New("duplicated itentity")
-
-	ErrAuthenticationFailed = errors.New("authentication failed")
 )
 
 // Provider for identities
@@ -28,7 +26,4 @@ type Provider interface {
 
 	// GetByName returns the identity with the given name
 	GetByName(string) (*idam.Identity, error)
-
-	// Save adds a new identity
-	Save(*idam.Identity) error
 }
