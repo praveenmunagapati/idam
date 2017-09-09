@@ -14,6 +14,8 @@ var (
 	// ErrDuplicateIdentity is returned if an identity with the same URN is already stored
 	// in the provider
 	ErrDuplicateIdentity = errors.New("duplicated itentity")
+
+	ErrAuthenticationFailed = errors.New("authentication failed")
 )
 
 // Provider for identities
