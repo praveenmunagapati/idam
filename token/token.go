@@ -11,7 +11,6 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
-	"github.com/homebot/idam/token"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -202,7 +201,7 @@ func New(sub urn.URN, groups []urn.URN, issuer string, expire time.Time, alg str
 type KeyProviderFunc func(issuer string, alg string) (interface{}, error)
 
 // FromMetadata reads and validates a token in gRPC metadata
-func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*token.Token, error) {
+func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*Token, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, idam.ErrNotAuthenticated
@@ -225,7 +224,7 @@ func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*token.Token, err
 		header = header[6:]
 	}
 
-	t, err := token.FromJWT(header[0], func(t *jwt.Token) (interface{}, error) {
+	t, err := FromJWT(header[0], func(t *jwt.Token) (interface{}, error) {
 		claims, ok := t.Claims.(jwt.MapClaims)
 		if !ok {
 			return nil, errors.New("invalid claims")
