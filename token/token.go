@@ -1,6 +1,7 @@
 package token
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -9,6 +10,9 @@ import (
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/homebot/core/urn"
+	"github.com/homebot/idam"
+	"github.com/homebot/idam/token"
+	"google.golang.org/grpc/metadata"
 )
 
 var (
@@ -44,6 +48,21 @@ type Token struct {
 
 	// JWT holds the JSON Web-Token the token has been parsed from
 	JWT string
+}
+
+// ForIdentity checks if the given token is for `i`
+func (t *Token) ForIdentity(i *idam.Identity) bool {
+	return t.URN.String() == i.URN().String()
+}
+
+// HasGroup checks if the token has a given group
+func (t *Token) HasGroup(grp urn.URN) bool {
+	for _, g := range t.Groups {
+		if g.String() == grp.String() {
+			return true
+		}
+	}
+	return false
 }
 
 // Owns checks if the identity of the token owns the resource `r`
@@ -177,4 +196,55 @@ func New(sub urn.URN, groups []urn.URN, issuer string, expire time.Time, alg str
 	signed, err := token.SignedString(signingKey)
 
 	return signed, err
+}
+
+// KeyProviderFunc returns the signing key for the issuer
+type KeyProviderFunc func(issuer string, alg string) (interface{}, error)
+
+// FromMetadata reads and validates a token in gRPC metadata
+func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*token.Token, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	header, ok := md["Authorization"]
+	if !ok {
+		header, ok = md["authorization"]
+		if !ok {
+			return nil, idam.ErrNotAuthenticated
+		}
+	}
+
+	if len(header) != 1 {
+		return nil, errors.New("invalid header")
+	}
+
+	// Check if we have the JWT Bearer prefix
+	if strings.HasPrefix(header[0], "Bearer ") {
+		header = header[6:]
+	}
+
+	t, err := token.FromJWT(header[0], func(t *jwt.Token) (interface{}, error) {
+		claims, ok := t.Claims.(jwt.MapClaims)
+		if !ok {
+			return nil, errors.New("invalid claims")
+		}
+
+		issuer, ok := claims["iss"].(string)
+		if !ok {
+			return nil, errors.New("invalid claims")
+		}
+
+		return keyFn(issuer, t.Method.Alg())
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := t.Valid(); err != nil {
+		return nil, err
+	}
+
+	return t, nil
 }

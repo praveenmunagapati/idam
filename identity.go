@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/homebot/core/urn"
-	"github.com/homebot/idam/token"
 	iotc_api "github.com/homebot/protobuf/pkg/api"
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 )
@@ -21,6 +20,10 @@ var (
 
 	// ErrInvalidData indicates that a identity has the wront type of data assigned
 	ErrInvalidData = errors.New("invalid user or service data")
+
+	ErrNotAuthenticated = errors.New("not authenticated")
+
+	ErrNotAuthorized = errors.New("not authorized")
 )
 
 // UserData holds additional information for USER identities
@@ -55,11 +58,6 @@ type Identity struct {
 
 	// UserData holds additional information for a USER identity
 	UserData *UserData
-}
-
-// HasToken returns true if the given token is for the identity
-func (i *Identity) HasToken(t *token.Token) bool {
-	return i.URN().String() == t.URN.String()
 }
 
 // URN returns the URN of the identity
