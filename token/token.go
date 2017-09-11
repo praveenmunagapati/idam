@@ -184,9 +184,9 @@ func New(sub urn.URN, groups []urn.URN, issuer string, expire time.Time, alg str
 
 	var signingKey interface{}
 
-	if strings.HasPrefix(alg, "RS") {
+	if strings.HasPrefix(alg, "ES") {
 		signingKey, err = jwt.ParseECPrivateKeyFromPEM(keyData)
-	} else if strings.HasPrefix(alg, "ES") {
+	} else if strings.HasPrefix(alg, "RS") {
 		signingKey, err = jwt.ParseRSAPrivateKeyFromPEM(keyData)
 	} else {
 		signingKey = keyData

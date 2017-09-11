@@ -23,6 +23,15 @@ type Memory struct {
 	passwords  map[urn.URN][]byte
 }
 
+// New creates a new in-memory IdentityManager
+func New() *Memory {
+	return &Memory{
+		identities: make(map[urn.URN]*idam.Identity),
+		otpSecrets: make(map[urn.URN]string),
+		passwords:  make(map[urn.URN][]byte),
+	}
+}
+
 // Verify authenticates `u` using `password` and, if OTP is used, `currentOTP`
 // It implements provider.Authenticator
 func (m *Memory) Verify(u urn.URN, password, currentOTP string) (bool, error) {
@@ -68,13 +77,14 @@ func (m *Memory) Get(u urn.URN) (*idam.Identity, bool, error) {
 	m.rw.RLock()
 	defer m.rw.RUnlock()
 
-	if i, ok := m.identities[u]; ok {
-		return &(*i), false, nil
+	i, ok := m.identities[u]
+	if !ok {
+		return nil, false, provider.ErrIdentityNotFound
 	}
 
 	_, hasOTP := m.otpSecrets[u]
 
-	return nil, hasOTP, provider.ErrIdentityNotFound
+	return &(*i), hasOTP, nil
 }
 
 // GetByName returns the identity with the given name
@@ -84,7 +94,7 @@ func (m *Memory) GetByName(n string) (*idam.Identity, bool, error) {
 }
 
 // Create a new identity in the memory provider
-func (m *Memory) Create(i *idam.Identity, password string, enableOTP bool) (string, error) {
+func (m *Memory) Create(i idam.Identity, password string, enableOTP bool) (string, error) {
 	m.rw.Lock()
 	defer m.rw.Unlock()
 
@@ -110,7 +120,7 @@ func (m *Memory) Create(i *idam.Identity, password string, enableOTP bool) (stri
 		return "", err
 	}
 
-	m.identities[i.URN()] = &(*i)
+	m.identities[i.URN()] = &i
 	m.passwords[i.URN()] = hash
 
 	if key != nil {

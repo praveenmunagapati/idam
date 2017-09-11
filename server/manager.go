@@ -1,11 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/homebot/core/urn"
 
+	"github.com/homebot/core/log"
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/provider"
 	"github.com/homebot/idam/token"
@@ -13,10 +17,84 @@ import (
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 )
 
+// Option configures a new manager
+type Option func(m *Manager) error
+
+// WithSharedKey configures a shared key for siging and verifying JWTs
+func WithSharedKey(key string) Option {
+	return func(m *Manager) error {
+		m.signingCert = []byte(key)
+		m.signingKey = []byte(key)
+		m.alg = "HS256"
+		return nil
+	}
+}
+
+// WithLogger configures the logger to use
+func WithLogger(l log.Logger) Option {
+	return func(m *Manager) error {
+		m.log = l
+		return nil
+	}
+}
+
+// WithIssuer configures the name of the issuer for new JWTs
+func WithIssuer(s string) Option {
+	return func(m *Manager) error {
+		m.issuer = s
+		return nil
+	}
+}
+
+// WithTokenDuration configures how long a JWT is valid until it is marked
+// as expired
+func WithTokenDuration(d time.Duration) Option {
+	return func(m *Manager) error {
+		m.tokenDuration = d
+		return nil
+	}
+}
+
 // Manager implements the gRPC Identity Manager Server interface
 type Manager struct {
-	idam  provider.IdentityManager
-	keyFn token.KeyProviderFunc
+	idam          provider.IdentityManager
+	alg           string
+	signingKey    []byte
+	signingCert   []byte
+	issuer        string
+	tokenDuration time.Duration
+	log           log.Logger
+}
+
+// New creates a new manager server
+func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
+	m := &Manager{
+		idam: p,
+	}
+
+	for _, fn := range opts {
+		if err := fn(m); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(m.signingCert) == 0 || len(m.signingKey) == 0 {
+		return nil, errors.New("no secret provided")
+	}
+
+	if m.issuer == "" {
+		m.issuer = "idam"
+	}
+
+	if m.tokenDuration == time.Duration(0) {
+		m.tokenDuration = time.Hour
+	}
+
+	if m.log == nil {
+		m.log = log.SimpleLogger{}
+	}
+
+	return m, nil
 }
 
 // Authenticate authenticates an identity and issues a new JWT
@@ -24,19 +102,21 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 	issue := false
 
 	ctx := stream.Context()
-	token, err := m.getToken(ctx)
+	auth, err := m.getToken(ctx)
 
 	var identity *idam.Identity
 
 	if err == nil {
 		// Already authenticated, issue a new token
-		i, _, err := m.idam.Get(token.URN)
+		i, _, err := m.idam.Get(auth.URN)
 		if err != nil {
 			return err
 		}
 
 		identity = i
 		issue = true
+
+		log.WithURN(auth.URN).Debugf("re-authenticated")
 	} else {
 		// wait for the first "Answer" containing the username
 		ans, err := stream.Recv()
@@ -57,6 +137,13 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 		if err != nil {
 			return err
 		}
+
+		logFA := "without"
+		if has2FA {
+			logFA = "with"
+		}
+
+		log.WithURN(u).Debugf("started authentication %s 2FA", logFA)
 
 		identity = i
 
@@ -117,6 +204,7 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 
 		ok, err := m.idam.Verify(u, pass, otp)
 		if err != nil {
+			log.WithURN(u).Infof("authentication failed")
 			return err
 		}
 
@@ -124,11 +212,30 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 			return idam.ErrNotAuthenticated
 		}
 
+		log.WithURN(u).Infof("authentication successfull")
+
 		issue = true
 	}
 
 	if issue && identity != nil {
-		// TODO(ppacher): issue new token
+		// TODO make issuer and expire-at confgurable
+		newToken, err := token.New(identity.URN(), identity.Groups, "idam", time.Now().Add(time.Hour), m.alg, bytes.NewReader(m.signingKey))
+		if err != nil {
+			return err
+		}
+
+		resp := &idam_api.AuthRequest{
+			Data: &idam_api.AuthRequest_Token{
+				Token: newToken,
+			},
+		}
+
+		log.WithURN(identity.URN()).Infof("issuing new JWT")
+
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+
 		return nil
 	}
 
@@ -142,7 +249,10 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idam_api.CreateIdentit
 		return nil, err
 	}
 
+	logger := log.WithURN(token.URN)
+
 	if !token.HasGroup(urn.IdamAdminGroup) {
+		logger.Warnf("not allowed to create a new identity")
 		return nil, idam.ErrNotAuthorized
 	}
 
@@ -168,6 +278,12 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idam_api.CreateIdentit
 		return nil, err
 	}
 
+	logFA := "without"
+	if in.GetEnable2FA() {
+		logFA = "with"
+	}
+	logger.Infof("created new identity %q %s 2FA", identity.URN().String(), logFA)
+
 	resp := &idam_api.CreateIdentityResponse{}
 
 	if in.GetEnable2FA() {
@@ -187,6 +303,8 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 		return nil, err
 	}
 
+	logger := log.WithURN(token.URN)
+
 	if in == nil {
 		return nil, errors.New("invald message")
 	}
@@ -198,6 +316,7 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 
 	// Only admin and the identity itself can delete it
 	if !token.HasGroup(urn.IdamAdminGroup) && token.URN.String() == u.String() {
+		logger.Warnf("not allowed to delete identity %q", u.String())
 		return nil, idam.ErrNotAuthorized
 	}
 
@@ -205,11 +324,18 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 		return nil, err
 	}
 
+	logger.Warnf("identity %q deleted", u.String())
 	return &homebot_api.Empty{}, nil
 }
 
 func (m *Manager) getToken(ctx context.Context) (*token.Token, error) {
-	return token.FromMetadata(ctx, m.keyFn)
+	return token.FromMetadata(ctx, func(issuer string, alg string) (interface{}, error) {
+		if strings.ToUpper(alg) != strings.ToUpper(m.alg) {
+			return nil, errors.New("unexpected token algorithim")
+		}
+
+		return m.signingCert, nil
+	})
 }
 
 var _ idam_api.IdentityManagerServer = &Manager{}
