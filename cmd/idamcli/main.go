@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam/client"
@@ -21,9 +22,16 @@ func main() {
 	}
 	defer conn.Close()
 
+	t := ""
+
+	if len(os.Args) > 1 {
+		t = os.Args[1]
+		fmt.Printf("token: %s\n", t)
+	}
+
 	u := urn.IdamIdentityResource.BuildURN("", "admin", "admin")
 
-	token, err := client.Authenticate(context.Background(), conn, u, func(typ idam_api.QuestionType) (string, error) {
+	token, err := client.Authenticate(context.Background(), t, conn, u, func(typ idam_api.QuestionType) (string, error) {
 		question := ""
 
 		switch typ {

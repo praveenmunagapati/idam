@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -103,6 +104,8 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 
 	ctx := stream.Context()
 	auth, err := m.getToken(ctx)
+
+	fmt.Printf("Token: %#v %s\n", auth, err)
 
 	var identity *idam.Identity
 

@@ -3,18 +3,29 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/homebot/core/urn"
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // ConversionHandler is called for authentication questions
 type ConversionHandler func(typ idam_api.QuestionType) (string, error)
 
 // Authenticate authenticates at the IDAM server
-func Authenticate(ctx context.Context, conn *grpc.ClientConn, u urn.URN, conv ConversionHandler) (string, error) {
+func Authenticate(ctx context.Context, jwt string, conn *grpc.ClientConn, u urn.URN, conv ConversionHandler) (string, error) {
 	cli := idam_api.NewAuthenticatorClient(conn)
+
+	var md metadata.MD
+
+	if jwt != "" {
+		md = metadata.New(map[string]string{"authorization": jwt})
+		fmt.Printf("%#v\n", md)
+	}
+
+	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	stream, err := cli.Authenticate(ctx)
 	if err != nil {

@@ -107,21 +107,19 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 	var groups []urn.URN
 	if _, ok := claim["groups"]; ok {
 		grps, ok := claim["groups"].([]interface{})
-		if !ok {
-			return nil, ErrInvalidToken
-		}
+		if ok {
+			for _, gi := range grps {
+				g, ok := gi.(string)
+				if !ok {
+					return nil, ErrInvalidToken
+				}
+				gu := urn.URN(g)
+				if !gu.Valid() {
+					return nil, urn.ErrInvalidURN
+				}
 
-		for _, gi := range grps {
-			g, ok := gi.(string)
-			if !ok {
-				return nil, ErrInvalidToken
+				groups = append(groups, gu)
 			}
-			gu := urn.URN(g)
-			if !gu.Valid() {
-				return nil, urn.ErrInvalidURN
-			}
-
-			groups = append(groups, gu)
 		}
 	}
 

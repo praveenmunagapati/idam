@@ -1,29 +1,17 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 
-	"github.com/homebot/idam"
-	"github.com/homebot/idam/provider/memory"
+	"github.com/homebot/idam/provider/file"
 	"github.com/homebot/idam/server"
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 	"google.golang.org/grpc"
 )
 
 func main() {
-	mng := memory.New()
-
-	otpSecret, err := mng.Create(idam.Identity{
-		Name: "admin",
-	}, "mypass", true)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("OTP-Secret: %s\n", otpSecret)
+	mng := file.New("./accounts.json")
 
 	srv, err := server.New(mng, server.WithSharedKey("foobar"))
 	if err != nil {
