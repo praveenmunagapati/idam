@@ -1,10 +1,8 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -18,43 +16,6 @@ import (
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 )
 
-// Option configures a new manager
-type Option func(m *Manager) error
-
-// WithSharedKey configures a shared key for siging and verifying JWTs
-func WithSharedKey(key string) Option {
-	return func(m *Manager) error {
-		m.signingCert = []byte(key)
-		m.signingKey = []byte(key)
-		m.alg = "HS256"
-		return nil
-	}
-}
-
-// WithLogger configures the logger to use
-func WithLogger(l log.Logger) Option {
-	return func(m *Manager) error {
-		m.log = l
-		return nil
-	}
-}
-
-// WithIssuer configures the name of the issuer for new JWTs
-func WithIssuer(s string) Option {
-	return func(m *Manager) error {
-		m.issuer = s
-		return nil
-	}
-}
-
-// WithTokenDuration configures how long a JWT is valid until it is marked
-// as expired
-func WithTokenDuration(d time.Duration) Option {
-	return func(m *Manager) error {
-		m.tokenDuration = d
-		return nil
-	}
-}
 
 // Manager implements the gRPC Identity Manager Server interface
 type Manager struct {
@@ -96,153 +57,6 @@ func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
 	}
 
 	return m, nil
-}
-
-// Authenticate authenticates an identity and issues a new JWT
-func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer) error {
-	issue := false
-
-	ctx := stream.Context()
-	auth, err := m.getToken(ctx)
-
-	fmt.Printf("Token: %#v %s\n", auth, err)
-
-	var identity *idam.Identity
-
-	if err == nil {
-		// Already authenticated, issue a new token
-		i, _, err := m.idam.Get(auth.URN)
-		if err != nil {
-			return err
-		}
-
-		identity = i
-		issue = true
-
-		log.WithURN(auth.URN).Debugf("re-authenticated")
-	} else {
-		// wait for the first "Answer" containing the username
-		ans, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-
-		if ans.GetType() != idam_api.QuestionType_USERNAME || ans.GetUsername() == nil {
-			return errors.New("invalid type")
-		}
-
-		u := urn.FromProtobuf(ans.GetUsername().GetUrn())
-		if !u.Valid() {
-			return urn.ErrInvalidURN
-		}
-
-		i, has2FA, err := m.idam.Get(u)
-		if err != nil {
-			return err
-		}
-
-		logFA := "without"
-		if has2FA {
-			logFA = "with"
-		}
-
-		log.WithURN(u).Debugf("started authentication %s 2FA", logFA)
-
-		identity = i
-
-		ok2FA := !has2FA
-		okPass := false
-
-		pass := ""
-		otp := ""
-
-		stream.Send(&idam_api.AuthRequest{
-			Data: &idam_api.AuthRequest_Question{
-				Question: &idam_api.Question{
-					Type: idam_api.QuestionType_PASSWORD,
-				},
-			},
-		})
-
-		if has2FA {
-			stream.Send(&idam_api.AuthRequest{
-				Data: &idam_api.AuthRequest_Question{
-					Question: &idam_api.Question{
-						Type: idam_api.QuestionType_OTP,
-					},
-				},
-			})
-		}
-
-		for {
-			msg, err := stream.Recv()
-			if err != nil {
-				return err
-			}
-
-			switch msg.GetType() {
-			case idam_api.QuestionType_OTP:
-				if ok2FA {
-					return errors.New("unexpected message")
-				}
-
-				otp = msg.GetSecret()
-				ok2FA = true
-
-			case idam_api.QuestionType_PASSWORD:
-				if okPass {
-					return errors.New("unexpected message")
-				}
-
-				pass = msg.GetSecret()
-				okPass = true
-			default:
-				return errors.New("unexpected message")
-			}
-
-			if okPass && ok2FA {
-				break
-			}
-		}
-
-		ok, err := m.idam.Verify(u, pass, otp)
-		if err != nil {
-			log.WithURN(u).Infof("authentication failed")
-			return err
-		}
-
-		if !ok {
-			return idam.ErrNotAuthenticated
-		}
-
-		log.WithURN(u).Infof("authentication successfull")
-
-		issue = true
-	}
-
-	if issue && identity != nil {
-		// TODO make issuer and expire-at confgurable
-		newToken, err := token.New(identity.URN(), identity.Groups, "idam", time.Now().Add(time.Hour), m.alg, bytes.NewReader(m.signingKey))
-		if err != nil {
-			return err
-		}
-
-		resp := &idam_api.AuthRequest{
-			Data: &idam_api.AuthRequest_Token{
-				Token: newToken,
-			},
-		}
-
-		log.WithURN(identity.URN()).Infof("issuing new JWT")
-
-		if err := stream.Send(resp); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	return idam.ErrNotAuthenticated
 }
 
 // CreateIdentity creates a new identity
@@ -342,4 +156,3 @@ func (m *Manager) getToken(ctx context.Context) (*token.Token, error) {
 }
 
 var _ idam_api.IdentityManagerServer = &Manager{}
-var _ idam_api.AuthenticatorServer = &Manager{}
