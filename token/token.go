@@ -11,8 +11,13 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
+	homedir "github.com/mitchellh/go-homedir"
 	"google.golang.org/grpc/metadata"
 )
+
+// DefaultTokenFile holds the location where the user's token
+// is stored by default
+var DefaultTokenFile = "~/.idam-token.jwt"
 
 var (
 	// ErrInvalidToken indicates an invalid or incorrectly signed
@@ -26,6 +31,45 @@ var (
 	// ErrTokenExpired indicates that the JWT token has been expired
 	ErrTokenExpired = errors.New("token expired")
 )
+
+// LoadToken checks `path` and returns the content and path of the
+// first token file found
+func LoadToken(paths []string) (string, string, error) {
+	if len(paths) == 0 {
+		paths = append(paths, DefaultTokenFile)
+	}
+
+	for _, p := range paths {
+		path, err := homedir.Expand(p)
+		if err != nil {
+			continue
+		}
+
+		token, err := ioutil.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		return string(token), p, nil
+	}
+
+	return "", "", errors.New("failed to find token file")
+}
+
+// SaveToken saves the JWT token to a file
+func SaveToken(token, path string) error {
+	if path == "" {
+		path = DefaultTokenFile
+	}
+
+	var err error
+	path, err = homedir.Expand(path)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(path, []byte(token), 0600)
+}
 
 // Token is an authentication token for an identity and digitally
 // signed by the issuer
