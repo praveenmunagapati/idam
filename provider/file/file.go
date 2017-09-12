@@ -2,6 +2,7 @@ package file
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 
@@ -207,6 +208,117 @@ func (m *FileProvider) Delete(u urn.URN) error {
 	delete(m.identities, u)
 	delete(m.passwords, u)
 	delete(m.otpSecrets, u)
+
+	return m.write()
+}
+
+// ChangePassword changes an identities password
+func (m *FileProvider) ChangePassword(u urn.URN, newPassword string) error {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	if _, ok := m.identities[u]; !ok {
+		return provider.ErrIdentityNotFound
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	m.passwords[u] = hash
+	return m.write()
+}
+
+// Disable2FA disables two-factor authentication
+func (m *FileProvider) Disable2FA(u urn.URN) error {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	if _, ok := m.identities[u]; !ok {
+		return provider.ErrIdentityNotFound
+	}
+
+	if _, ok := m.otpSecrets[u]; !ok {
+		return provider.Err2FANotEnabled
+	}
+
+	delete(m.otpSecrets, u)
+	return m.write()
+}
+
+// Enable2FA enables two-factor-authentication
+func (m *FileProvider) Enable2FA(u urn.URN) (string, error) {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	if _, ok := m.identities[u]; !ok {
+		return "", provider.ErrIdentityNotFound
+	}
+
+	if _, ok := m.otpSecrets[u]; !ok {
+		// Already enabled, return the OTP secret
+		return m.otpSecrets[u], nil
+	}
+
+	var err error
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "idam",
+		AccountName: u.AccountID(),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	m.otpSecrets[u] = key.Secret()
+	return key.Secret(), m.write()
+}
+
+// Update updates the identity
+func (m *FileProvider) Update(u urn.URN, ident idam.Identity) error {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	original, ok := m.identities[u]
+	if !ok {
+		return provider.ErrIdentityNotFound
+	}
+
+	if original.Name != ident.Name {
+		return errors.New("cannot change identitiy name")
+	}
+
+	if original.Type != ident.Type {
+		return errors.New("cannot change identity type")
+	}
+
+	original.Groups = make([]urn.URN, len(ident.Groups))
+	for i, g := range ident.Groups {
+		original.Groups[i] = g
+	}
+
+	original.Labels = make(map[string]string)
+	for k, l := range ident.Labels {
+		original.Labels[k] = l
+	}
+
+	if original.IsUser() {
+		if ident.UserData != nil {
+			mails := make([]string, len(ident.UserData.SecondaryMails))
+			for i, m := range ident.UserData.SecondaryMails {
+				mails[i] = m
+			}
+
+			original.UserData = &idam.UserData{
+				PrimaryMail:    ident.UserData.PrimaryMail,
+				FirstName:      ident.UserData.FirstName,
+				LastName:       ident.UserData.LastName,
+				SecondaryMails: mails,
+			}
+		} else {
+			original.UserData = nil
+		}
+	}
 
 	return m.write()
 }
