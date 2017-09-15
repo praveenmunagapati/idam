@@ -129,12 +129,21 @@ func (t *Token) Valid() error {
 
 // FromJWT creates a idam.Token from the given JSON Web Token
 func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)) (*Token, error) {
+	verify := true
+
+	if keyFn == nil {
+		verify = false
+		keyFn = func(_ *jwt.Token) (interface{}, error) {
+			return nil, errors.New("not verified")
+		}
+	}
+
 	token, err := jwt.Parse(string(tokenData), keyFn)
-	if err != nil {
+	if err != nil && verify {
 		return nil, err
 	}
 
-	if !token.Valid {
+	if !token.Valid && verify {
 		return nil, ErrInvalidToken
 	}
 
@@ -288,4 +297,24 @@ func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*Token, error) {
 	}
 
 	return t, nil
+}
+
+type JWTCredentials struct {
+	Token string
+}
+
+func NewRPCCredentials(t string) *JWTCredentials {
+	return &JWTCredentials{
+		Token: t,
+	}
+}
+
+func (j *JWTCredentials) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{
+		"authorization": j.Token,
+	}, nil
+}
+
+func (j *JWTCredentials) RequireTransportSecurity() bool {
+	return false // TODO(ppacher): make this true
 }

@@ -16,7 +16,6 @@ import (
 	idam_api "github.com/homebot/protobuf/pkg/api/idam"
 )
 
-
 // Manager implements the gRPC Identity Manager Server interface
 type Manager struct {
 	idam          provider.IdentityManager
@@ -143,6 +142,24 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 
 	logger.Warnf("identity %q deleted", u.String())
 	return &homebot_api.Empty{}, nil
+}
+
+// List returns a list of identities
+func (m *Manager) List(in *homebot_api.Empty, stream idam_api.IdentityManager_ListServer) error {
+	token, err := m.getToken(stream.Context())
+	if err != nil {
+		return err
+	}
+
+	identities := m.idam.Identities()
+
+	for _, i := range identities {
+		if token.HasGroup(urn.IdamAdminGroup) || token.Owns(i) {
+			stream.Send(i.ToProtobuf())
+		}
+	}
+
+	return nil
 }
 
 func (m *Manager) getToken(ctx context.Context) (*token.Token, error) {

@@ -144,10 +144,21 @@ func IdentityFromProto(p *idam_api.Identity) *Identity {
 		groups = append(groups, urn.FromProtobuf(g))
 	}
 
+	var userData *UserData
+	if p.GetType() == idam_api.IdentityType_USER && p.GetUser() != nil {
+		userData = &UserData{
+			PrimaryMail:    p.GetUser().GetEmailAddress(),
+			SecondaryMails: p.GetUser().GetSecondaryMailAddresses(),
+			FirstName:      p.GetUser().GetFirstName(),
+			LastName:       p.GetUser().GetLastName(),
+		}
+	}
+
 	return &Identity{
-		Type:   p.GetType(),
-		Groups: groups,
-		Name:   p.GetName(),
-		Labels: p.GetLabels(),
+		Type:     p.GetType(),
+		Groups:   groups,
+		Name:     p.GetName(),
+		Labels:   p.GetLabels(),
+		UserData: userData,
 	}
 }

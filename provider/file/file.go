@@ -117,6 +117,44 @@ func (m *FileProvider) Verify(u urn.URN, password, currentOTP string) (bool, err
 	return true, nil
 }
 
+// VerifyPassword verifies the identities password
+func (m *FileProvider) VerifyPassword(u urn.URN, pass string) (bool, error) {
+	m.rw.RLock()
+	defer m.rw.RUnlock()
+
+	if _, ok := m.identities[u]; !ok {
+		return false, provider.ErrIdentityNotFound
+	}
+
+	if p, ok := m.passwords[u]; ok {
+		if bcrypt.CompareHashAndPassword(p, []byte(pass)) != nil {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// VerifyOTP verifies the identities one-time-password
+func (m *FileProvider) VerifyOTP(u urn.URN, pass string) (bool, error) {
+	m.rw.RLock()
+	defer m.rw.RUnlock()
+
+	if _, ok := m.identities[u]; !ok {
+		return false, provider.ErrIdentityNotFound
+	}
+
+	if o, ok := m.otpSecrets[u]; ok {
+		if !totp.Validate(pass, o) {
+			return false, nil
+		}
+
+		return true, nil
+	}
+
+	return false, provider.Err2FANotEnabled
+}
+
 // Identities returns all identities stored in the
 // FileProvider provider. It implements the Provider interface
 func (m *FileProvider) Identities() []*idam.Identity {
