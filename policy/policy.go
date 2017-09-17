@@ -20,6 +20,22 @@ import (
 	"google.golang.org/grpc"
 )
 
+type policyTokenKey struct{}
+
+// PolicyTokenKey is used to store authentication tokens in a context
+var PolicyTokenKey = &policyTokenKey{}
+
+// TokenFromContext returns the authentication token from the context
+func TokenFromContext(ctx context.Context) (*token.Token, bool) {
+	t, ok := ctx.Value(PolicyTokenKey).(*token.Token)
+	return t, ok
+}
+
+// ContextWithToken sets the authentication token on the context
+func ContextWithToken(ctx context.Context, token *token.Token) context.Context {
+	return context.WithValue(ctx, PolicyTokenKey, token)
+}
+
 func extractFile(gz []byte) (*protobuf.FileDescriptorProto, error) {
 	r, err := gzip.NewReader(bytes.NewReader(gz))
 	if err != nil {
@@ -81,8 +97,8 @@ func NewEnforcer(files []string, keyFn token.KeyProviderFunc) (*Enforcer, error)
 	return p, nil
 }
 
-func (p *Enforcer) getPolicy(info *grpc.UnaryServerInfo) ([]*idamPolicy.PolicyRule, error) {
-	parts := strings.Split(info.FullMethod, "/")
+func (p *Enforcer) getPolicy(methodName string) ([]*idamPolicy.PolicyRule, error) {
+	parts := strings.Split(methodName, "/")
 	svc := parts[1]
 	method := parts[2]
 
@@ -125,24 +141,47 @@ L:
 	return policies, nil
 }
 
-// UnaryInspector inspects unary RPC calls and enforces HomeBot API policies attached
+// UnaryInterceptor inspects unary RPC calls and enforces HomeBot API policies attached
 // to the service definition
-func (p *Enforcer) UnaryInspector(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	return p.enforce(ctx, req, info, handler)
-
-}
-
-// StreamInspector inspects stream RPCs and enforces HomeBot APi policies attached to
-// the service definition
-func (p *Enforcer) StreamInspector(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	// TODO
-	return handler(srv, stream)
-}
-
-func (p *Enforcer) enforce(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	policy, err := p.getPolicy(info)
+func (p *Enforcer) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	ctx, err := p.enforce(ctx, req, false, info.FullMethod)
 	if err != nil {
 		return nil, err
+	}
+
+	return handler(ctx, req)
+}
+
+type streamContextWrapper struct {
+	grpc.ServerStream
+
+	ctx context.Context
+}
+
+func (s *streamContextWrapper) Context() context.Context {
+	return s.ctx
+}
+
+// StreamInterceptor inspects stream RPCs and enforces HomeBot API policies attached to
+// the service definition
+func (p *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ctx, err := p.enforce(stream.Context(), nil, info.IsClientStream, info.FullMethod)
+	if err != nil {
+		return err
+	}
+
+	wrappedStream := &streamContextWrapper{
+		ServerStream: stream,
+		ctx:          ctx,
+	}
+
+	return handler(wrappedStream, stream)
+}
+
+func (p *Enforcer) enforce(ctx context.Context, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
+	policy, err := p.getPolicy(methodName)
+	if err != nil {
+		return ctx, err
 	}
 
 	jwt, tokenErr := token.FromMetadata(ctx, p.keyFn)
@@ -155,10 +194,10 @@ func (p *Enforcer) enforce(ctx context.Context, req interface{}, info *grpc.Unar
 		}
 
 		if authRequired && (tokenErr != nil || jwt == nil) {
-			return nil, idam.ErrNotAuthenticated
+			return ctx, idam.ErrNotAuthenticated
 		}
 
-		if p.OwnerOnly != "" {
+		if !clientStreaming && p.OwnerOnly != "" && req != nil {
 			typ := reflect.ValueOf(req).Elem().Type()
 			props := proto.GetProperties(typ)
 		L:
@@ -167,7 +206,7 @@ func (p *Enforcer) enforce(ctx context.Context, req interface{}, info *grpc.Unar
 					val := reflect.ValueOf(req).Elem().FieldByName(prop.Name)
 
 					if !jwt.OwnsURN(urn.URN(val.String())) {
-						return nil, idam.ErrNotAuthorized
+						return ctx, idam.ErrNotAuthorized
 					}
 
 					break L
@@ -177,12 +216,14 @@ func (p *Enforcer) enforce(ctx context.Context, req interface{}, info *grpc.Unar
 
 		for _, r := range p.GetRoles() {
 			if !jwt.HasGroup(urn.URN(r)) {
-				return nil, idam.ErrNotAuthorized
+				return ctx, idam.ErrNotAuthorized
 			}
 		}
 	}
 
-	return handler(ctx, req)
+	ctx = ContextWithToken(ctx, jwt)
+
+	return ctx, nil
 }
 
 func (p *Enforcer) checkForErrors() error {
