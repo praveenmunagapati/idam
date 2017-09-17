@@ -74,6 +74,10 @@ func NewEnforcer(files []string, keyFn token.KeyProviderFunc) (*Enforcer, error)
 		}
 	}
 
+	if err := p.checkForErrors(); err != nil {
+		return nil, err
+	}
+
 	return p, nil
 }
 
@@ -165,4 +169,42 @@ func (p *Enforcer) enforce(ctx context.Context, req interface{}, info *grpc.Unar
 	}
 
 	return handler(ctx, req)
+}
+
+func (p *Enforcer) checkForErrors() error {
+	for name, service := range p.services {
+		opt, err := proto.GetExtension(service.Options, homebot.E_MethodPolicy)
+		if err == nil {
+			sopt, ok := opt.([]*idamPolicy.PolicyRule)
+			if !ok {
+				return fmt.Errorf("invalid service option type for service %s", name)
+			}
+
+			for _, policy := range sopt {
+				if policy.OwnerOnly != "" {
+					return fmt.Errorf("%s: service option cannot use OwnerOnly", name)
+				}
+			}
+		}
+
+		for _, method := range service.Method {
+			methodName := method.GetName()
+
+			opt, err := proto.GetExtension(method.Options, homebot.E_Policy)
+			if err == nil {
+				mopt, ok := opt.([]*idamPolicy.PolicyRule)
+				if !ok {
+					return fmt.Errorf("invalid method option on %s/%s", name, methodName)
+				}
+
+				for _, policy := range mopt {
+					if (method.GetClientStreaming() || method.GetServerStreaming()) && policy.OwnerOnly != "" {
+						return fmt.Errorf("streaming RPC cannot use OwnerOnly: %s.%s", name, methodName)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
