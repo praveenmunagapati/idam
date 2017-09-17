@@ -4,14 +4,12 @@ import (
 	"log"
 	"net"
 
-	"github.com/homebot/idam"
 	"github.com/homebot/idam/provider/file"
 	"github.com/homebot/idam/server"
 	"google.golang.org/grpc"
 )
 
 func main() {
-	idam.TestPolicy()
 	mng := file.New("./accounts.json")
 
 	srv, err := server.New(mng, server.WithSharedKey("foobar"))
