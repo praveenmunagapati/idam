@@ -275,7 +275,7 @@ func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*Token, error) {
 		header = header[6:]
 	}
 
-	t, err := FromJWT(header[0], func(t *jwt.Token) (interface{}, error) {
+	key := func(t *jwt.Token) (interface{}, error) {
 		claims, ok := t.Claims.(jwt.MapClaims)
 		if !ok {
 			return nil, errors.New("invalid claims")
@@ -287,7 +287,13 @@ func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*Token, error) {
 		}
 
 		return keyFn(issuer, t.Method.Alg())
-	})
+	}
+
+	if keyFn == nil {
+		key = nil
+	}
+
+	t, err := FromJWT(header[0], key)
 	if err != nil {
 		return nil, err
 	}

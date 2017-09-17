@@ -4,8 +4,7 @@ import (
 	"errors"
 
 	"github.com/homebot/core/urn"
-	iotc_api "github.com/homebot/protobuf/pkg/api"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
 var (
@@ -45,10 +44,10 @@ type UserData struct {
 // and authorized
 type Identity struct {
 	// Type is the type of the identity
-	Type idam_api.IdentityType
+	Type idamV1.IdentityType
 
-	// Groups the identity belongs to
-	Groups []urn.URN
+	// Roles the identity belongs to
+	Roles []urn.URN
 
 	// Name of the identity
 	Name string
@@ -73,12 +72,12 @@ func (i *Identity) AccountID() string {
 
 // IsUser returns true if the identity is a user identity
 func (i *Identity) IsUser() bool {
-	return i.Type == idam_api.IdentityType_USER
+	return i.Type == idamV1.IdentityType_USER
 }
 
 // IsService returns true if the identity is a service identity
 func (i *Identity) IsService() bool {
-	return i.Type == idam_api.IdentityType_SERVICE
+	return i.Type == idamV1.IdentityType_SERVICE
 }
 
 // Valid checks if the identity is valid
@@ -87,15 +86,15 @@ func (i *Identity) Valid() error {
 		return ErrMissingName
 	}
 
-	if i.Type != idam_api.IdentityType_USER && i.Type != idam_api.IdentityType_SERVICE {
+	if i.Type != idamV1.IdentityType_USER && i.Type != idamV1.IdentityType_SERVICE {
 		return ErrInvalidType
 	}
 
-	if i.Type == idam_api.IdentityType_USER && i.UserData == nil {
+	if i.Type == idamV1.IdentityType_USER && i.UserData == nil {
 		return ErrMissingUserData
 	}
 
-	if i.Type == idam_api.IdentityType_SERVICE && i.UserData != nil {
+	if i.Type == idamV1.IdentityType_SERVICE && i.UserData != nil {
 		return ErrInvalidData
 	}
 
@@ -103,23 +102,23 @@ func (i *Identity) Valid() error {
 }
 
 // ToProtobuf creates the protocol buffer representation of the identity
-func (i *Identity) ToProtobuf() *idam_api.Identity {
-	var groups []*iotc_api.URN
-	for _, g := range i.Groups {
-		groups = append(groups, urn.ToProtobuf(g))
+func (i *Identity) ToProtobuf() *idamV1.Identity {
+	var group []string
+	for _, g := range i.Roles {
+		group = append(group, g.String())
 	}
 
-	identity := &idam_api.Identity{
+	identity := &idamV1.Identity{
 		Type:   i.Type,
-		Urn:    urn.ToProtobuf(i.URN()),
-		Groups: groups,
+		Urn:    i.URN().String(),
+		Roles:  group,
 		Name:   i.Name,
 		Labels: i.Labels,
 	}
 
 	if i.IsUser() && i.UserData != nil {
-		identity.Extra = &idam_api.Identity_User{
-			User: &idam_api.UserData{
+		identity.Extra = &idamV1.Identity_User{
+			User: &idamV1.UserData{
 				EmailAddress:           i.UserData.PrimaryMail,
 				SecondaryMailAddresses: i.UserData.SecondaryMails,
 				FirstName:              i.UserData.FirstName,
@@ -133,19 +132,19 @@ func (i *Identity) ToProtobuf() *idam_api.Identity {
 
 // IdentityFromProto creates a Identity from it's protocol buffer
 // representation
-func IdentityFromProto(p *idam_api.Identity) *Identity {
+func IdentityFromProto(p *idamV1.Identity) *Identity {
 	if p == nil {
 		return nil
 	}
 
 	var groups []urn.URN
 
-	for _, g := range p.GetGroups() {
-		groups = append(groups, urn.FromProtobuf(g))
+	for _, g := range p.GetRoles() {
+		groups = append(groups, urn.URN(g))
 	}
 
 	var userData *UserData
-	if p.GetType() == idam_api.IdentityType_USER && p.GetUser() != nil {
+	if p.GetType() == idamV1.IdentityType_USER && p.GetUser() != nil {
 		userData = &UserData{
 			PrimaryMail:    p.GetUser().GetEmailAddress(),
 			SecondaryMails: p.GetUser().GetSecondaryMailAddresses(),
@@ -156,7 +155,7 @@ func IdentityFromProto(p *idam_api.Identity) *Identity {
 
 	return &Identity{
 		Type:     p.GetType(),
-		Groups:   groups,
+		Roles:    groups,
 		Name:     p.GetName(),
 		Labels:   p.GetLabels(),
 		UserData: userData,
