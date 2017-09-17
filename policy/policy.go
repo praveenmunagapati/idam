@@ -86,29 +86,43 @@ func (p *Enforcer) getPolicy(info *grpc.UnaryServerInfo) ([]*idamPolicy.PolicyRu
 	svc := parts[1]
 	method := parts[2]
 
+	var policies []*idamPolicy.PolicyRule
+
+L:
 	for name, s := range p.services {
 		if name != svc {
 			continue
 		}
 
-		for _, m := range s.Method {
-			if m.GetName() == method {
-				p, err := proto.GetExtension(m.Options, homebot.E_Policy)
-				if err != nil {
-					return nil, err
-				}
-
-				policy, ok := p.([]*idamPolicy.PolicyRule)
+		if s.GetOptions() != nil {
+			p, err := proto.GetExtension(s.Options, homebot.E_MethodPolicy)
+			if err == nil {
+				servicePolicies, ok := p.([]*idamPolicy.PolicyRule)
 				if !ok {
 					return nil, errors.New("invalid policy message type")
 				}
 
-				return policy, nil
+				policies = append(policies, servicePolicies...)
+			}
+		}
+
+		for _, m := range s.Method {
+			if m.GetName() == method && m.GetOptions() != nil {
+				p, err := proto.GetExtension(m.Options, homebot.E_Policy)
+				if err == nil {
+					policy, ok := p.([]*idamPolicy.PolicyRule)
+					if !ok {
+						return nil, errors.New("invalid policy message type")
+					}
+
+					policies = append(policies, policy...)
+				}
+				break L
 			}
 		}
 	}
 
-	return nil, nil
+	return policies, nil
 }
 
 // UnaryInspector inspects unary RPC calls and enforces HomeBot API policies attached
