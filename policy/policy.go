@@ -173,22 +173,28 @@ func (p *Enforcer) enforce(ctx context.Context, req interface{}, info *grpc.Unar
 
 func (p *Enforcer) checkForErrors() error {
 	for name, service := range p.services {
-		opt, err := proto.GetExtension(service.Options, homebot.E_MethodPolicy)
-		if err == nil {
-			sopt, ok := opt.([]*idamPolicy.PolicyRule)
-			if !ok {
-				return fmt.Errorf("invalid service option type for service %s", name)
-			}
+		if service.Options != nil {
+			opt, err := proto.GetExtension(service.Options, homebot.E_MethodPolicy)
+			if err == nil {
+				sopt, ok := opt.([]*idamPolicy.PolicyRule)
+				if !ok {
+					return fmt.Errorf("invalid service option type for service %s", name)
+				}
 
-			for _, policy := range sopt {
-				if policy.OwnerOnly != "" {
-					return fmt.Errorf("%s: service option cannot use OwnerOnly", name)
+				for _, policy := range sopt {
+					if policy.OwnerOnly != "" {
+						return fmt.Errorf("%s: service option cannot use OwnerOnly", name)
+					}
 				}
 			}
 		}
 
 		for _, method := range service.Method {
 			methodName := method.GetName()
+
+			if method.Options == nil {
+				continue
+			}
 
 			opt, err := proto.GetExtension(method.Options, homebot.E_Policy)
 			if err == nil {
