@@ -3,6 +3,7 @@ package file
 import (
 	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"os"
 	"sync"
 
@@ -72,24 +73,18 @@ func (m *FileProvider) read() error {
 func (m *FileProvider) write() error {
 	os.Remove(m.path)
 
-	f, err := os.Create(m.path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
 	d := Data{
 		Passwords:  m.passwords,
 		Identities: m.identities,
 		OtpSecrets: m.otpSecrets,
 	}
 
-	encoder := json.NewEncoder(f)
-	if err := encoder.Encode(d); err != nil {
+	blob, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return err
 	}
 
-	return nil
+	return ioutil.WriteFile(m.path, blob, 0600)
 }
 
 // Verify authenticates `u` using `password` and, if OTP is used, `currentOTP`
