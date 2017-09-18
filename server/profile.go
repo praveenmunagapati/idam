@@ -4,191 +4,142 @@ import (
 	"context"
 	"errors"
 
-	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
+	"github.com/homebot/idam/policy"
 
-	iotc_api "github.com/homebot/protobuf/pkg/api"
+	homebotApi "github.com/homebot/protobuf/pkg/api"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
 // GetProfile returns the identitiy profile
-func (m *Manager) GetProfile(ctx context.Context, in *iotc_api.URN) (*idamV1.Profile, error) {
-	auth, err := m.getToken(ctx)
+func (m *Manager) GetProfile(ctx context.Context, _ *homebotApi.Empty) (*idamV1.Identity, error) {
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	identity, has2FA, err := m.idam.Get(auth.URN)
 	if err != nil {
 		return nil, err
 	}
 
-	u := urn.FromProtobuf(in)
-	if !u.Valid() {
-		return nil, urn.ErrInvalidURN
-	}
-
-	if !auth.HasGroup(urn.IdamAdminGroup) || !auth.OwnsURN(u) {
-		return nil, idam.ErrNotAuthorized
-	}
-
-	identity, has2FA, err := m.idam.Get(u)
-	if err != nil {
-		return nil, err
-	}
-
-	return &idamV1.Profile{
-		Identity: identity.ToProtobuf(),
-		Has2FA:   has2FA,
-	}, nil
+	return identity.ToProtobuf(), nil
 }
 
 // ChangePassword changes the identities password
-func (m *Manager) ChangePassword(ctx context.Context, in *idamV1.ChangePasswordRequest) (*iotc_api.Empty, error) {
-	auth, err := m.getToken(ctx)
-	if err != nil {
-		return nil, err
+func (m *Manager) ChangePassword(ctx context.Context, in *idamV1.ChangePasswordRequest) (*homebotApi.Empty, error) {
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
 	}
 
-	if in == nil || in.Urn == nil || in.NewPassword == "" {
+	if in == nil || in.NewPassword == "" {
 		return nil, errors.New("invalid request")
-	}
-
-	u := urn.FromProtobuf(in.Urn)
-	if !u.Valid() {
-		return nil, urn.ErrInvalidURN
-	}
-
-	if !auth.HasGroup(urn.IdamAdminGroup) || !auth.OwnsURN(u) {
-		return nil, idam.ErrNotAuthorized
 	}
 
 	// if the identitiy is not an IDAM admin, we need to verify the "old" password
-	if !auth.HasGroup(urn.IdamAdminGroup) {
-		ok, err := m.idam.VerifyPassword(u, in.GetOldPassword())
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, idam.ErrNotAuthenticated
-		}
-	}
-
-	err = m.idam.ChangePassword(u, in.GetNewPassword())
+	ok, err := m.idam.VerifyPassword(auth.URN, in.GetCurrentPassword())
 	if err != nil {
 		return nil, err
 	}
-
-	return &iotc_api.Empty{}, nil
-}
-
-// Change2FA changes two-factor-authentication settings
-func (m *Manager) Change2FA(ctx context.Context, in *idamV1.Change2FARequest) (*idamV1.Change2FAResult, error) {
-	auth, err := m.getToken(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if in == nil || in.Urn == nil || in.GetChange() == nil {
-		return nil, errors.New("invalid request")
-	}
-
-	u := urn.FromProtobuf(in.Urn)
-
-	if !u.Valid() {
-		return nil, urn.ErrInvalidURN
-	}
-
-	if !auth.HasGroup(urn.IdamAdminGroup) || !auth.OwnsURN(u) {
+	if !ok {
 		return nil, idam.ErrNotAuthorized
 	}
 
-	_, has2FA, err := m.idam.Get(u)
+	err = m.idam.ChangePassword(auth.URN, in.GetNewPassword())
 	if err != nil {
 		return nil, err
 	}
 
-	if has2FA && in.GetEnable() {
+	return &homebotApi.Empty{}, nil
+}
+
+// Change2FA changes two-factor-authentication settings
+func (m *Manager) Change2FA(ctx context.Context, in *idamV1.Change2FARequest) (*idamV1.Change2FAResponse, error) {
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	_, has2FA, err := m.idam.Get(auth.URN)
+	if err != nil {
+		return nil, err
+	}
+
+	shouldEnable := in.GetEnabled()
+
+	if has2FA && shouldEnable {
 		return nil, errors.New("already enabled")
 	}
 
-	if !has2FA && in.GetEnable() {
-		secret, err := m.idam.Enable2FA(u)
+	if !has2FA && shouldEnable {
+		secret, err := m.idam.Enable2FA(auth.URN)
 		if err != nil {
 			return nil, err
 		}
 
-		return &idamV1.Change2FAResult{
-			Urn: urn.ToProtobuf(u),
-			Result: &idamV1.Change2FAResult_Settings{
-				Settings: &idamV1.Settings2FA{
-					Secret: secret,
-					Type:   idamV1.Settings2FA_TOTP,
-				},
-			},
+		return &idamV1.Change2FAResponse{
+			Enabled: true,
+			Secret:  secret,
 		}, nil
 	}
 
-	if !has2FA && in.GetDisable() {
+	if !has2FA && !shouldEnable {
 		return nil, errors.New("not enabled")
 	}
 
-	if has2FA && in.GetDisable() {
-		if !auth.HasGroup(urn.IdamAdminGroup) {
-			ok, err := m.idam.VerifyOTP(u, in.GetCurrentOTP())
-			if err != nil || !ok {
-				return nil, idam.ErrNotAuthorized
-			}
+	if has2FA && !shouldEnable {
+		// Before allowing to identity to disable 2FA, we need to verify it
+		// once more
+		ok, err := m.idam.VerifyOTP(auth.URN, in.GetCurrentOneTimeSecret())
+		if err != nil || !ok {
+			return nil, idam.ErrNotAuthorized
 		}
 
-		if err := m.idam.Disable2FA(u); err != nil {
+		if err := m.idam.Disable2FA(auth.URN); err != nil {
 			return nil, err
 		}
 
-		return &idamV1.Change2FAResult{
-			Urn: urn.ToProtobuf(u),
-			Result: &idamV1.Change2FAResult_Disabled{
-				Disabled: true,
-			},
+		return &idamV1.Change2FAResponse{
+			Enabled: false,
 		}, nil
 	}
 
 	return nil, errors.New("unknown error")
 }
 
-// UpdateProfile updates the user profile
-func (m *Manager) UpdateProfile(ctx context.Context, in *idamV1.Identity) (*idamV1.Profile, error) {
-	auth, err := m.getToken(ctx)
+// SetUserData updates the user profile of an identity
+func (m *Manager) SetUserData(ctx context.Context, in *idamV1.UserData) (*idamV1.Identity, error) {
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	i, _, err := m.idam.Get(auth.URN)
+
+	if !i.IsUser() {
+		return nil, errors.New("not a user identity")
+	}
+
+	userData := idam.UserData{
+		PrimaryMail:    in.GetEmailAddress(),
+		SecondaryMails: in.GetSecondaryMailAddresses(),
+		FirstName:      in.GetFirstName(),
+		LastName:       in.GetLastName(),
+	}
+
+	i.UserData = &userData
+
+	if err := m.idam.Update(auth.URN, *i); err != nil {
+		return nil, err
+	}
+
+	i, _, err = m.idam.Get(auth.URN)
 	if err != nil {
 		return nil, err
 	}
 
-	if in == nil || in.Urn == nil {
-		return nil, errors.New("invalid message")
-	}
-
-	u := urn.FromProtobuf(in.Urn)
-	if !u.Valid() {
-		return nil, urn.ErrInvalidURN
-	}
-
-	if !auth.HasGroup(urn.IdamAdminGroup) || auth.OwnsURN(u) {
-		return nil, idam.ErrNotAuthorized
-	}
-
-	identity := idam.IdentityFromProto(in)
-	if err := identity.Valid(); err != nil {
-		return nil, err
-	}
-
-	if err := m.idam.Update(u, *identity); err != nil {
-		return nil, err
-	}
-
-	ident, has2FA, err := m.idam.Get(u)
-	if err != nil {
-		return nil, err
-	}
-
-	return &idamV1.Profile{
-		Identity: ident.ToProtobuf(),
-		Has2FA:   has2FA,
-	}, nil
+	return i.ToProtobuf(), nil
 }
 
-var _ idamV1.ProfileManagerServer = &Manager{}
+var _ idamV1.ProfileServer = &Manager{}

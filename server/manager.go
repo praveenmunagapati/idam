@@ -11,7 +11,6 @@ import (
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/provider"
-	homebot_api "github.com/homebot/protobuf/pkg/api"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
@@ -59,9 +58,9 @@ func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
 
 // CreateIdentity creates a new identity
 func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityRequest) (*idamV1.CreateIdentityResponse, error) {
-	token, err := policy.TokenFromContext(ctx)
-	if err != nil {
-		return nil, err
+	token, ok := policy.TokenFromContext(ctx)
+	if !ok || token.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
 	}
 
 	logger := log.WithURN(token.URN)
@@ -97,20 +96,17 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 	resp := &idamV1.CreateIdentityResponse{}
 
 	if in.GetEnable2FA() {
-		resp.Settings2FA = &idamV1.Settings2FA{
-			Secret: otpSecret,
-			Type:   idamV1.Settings2FA_TOTP,
-		}
+		resp.TotpSecret = otpSecret
 	}
 
 	return resp, nil
 }
 
 // DeleteIdentity deletes an identity
-func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*homebot_api.Empty, error) {
-	token, err := policy.TokenFromContext(ctx)
-	if err != nil {
-		return nil, err
+func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityRequest) (*idamV1.DeleteIdentityResponse, error) {
+	token, ok := policy.TokenFromContext(ctx)
+	if !ok || token.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
 	}
 
 	logger := log.WithURN(token.URN)
@@ -119,35 +115,42 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 		return nil, errors.New("invald message")
 	}
 
-	u := urn.FromProtobuf(in)
-	if !u.Valid() {
-		return nil, errors.New("invalid URN")
+	target := urn.URN(in.GetUrn())
+	if !target.Valid() {
+		return nil, urn.ErrInvalidURN
 	}
 
-	if err := m.idam.Delete(u); err != nil {
+	if err := m.idam.Delete(target); err != nil {
 		return nil, err
 	}
 
-	logger.Warnf("identity %q deleted", u.String())
-	return &homebot_api.Empty{}, nil
+	logger.Warnf("identity %q deleted", target.String())
+
+	return &idamV1.DeleteIdentityResponse{
+		Urn: in.GetUrn(),
+	}, nil
 }
 
-// List returns a list of identities
-func (m *Manager) List(in *homebot_api.Empty, stream idamV1.IdentityManager_ListServer) error {
-	token, err := policy.TokenFromContext(ctx)
-	if err != nil {
-		return err
+// Lookup searches for identities matching the lookup request
+func (m *Manager) Lookup(ctx context.Context, in *idamV1.LookupRequest) (*idamV1.LookupResponse, error) {
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
 	}
 
 	identities := m.idam.Identities()
 
+	var res []*idamV1.Identity
+
 	for _, i := range identities {
-		if token.HasGroup(urn.IdamAdminGroup) || token.Owns(i) {
-			stream.Send(i.ToProtobuf())
+		if auth.HasGroup(urn.IdamAdminGroup) || auth.OwnsURN(i.URN()) {
+			res = append(res, i.ToProtobuf())
 		}
 	}
 
-	return nil
+	return &idamV1.LookupResponse{
+		Identities: res,
+	}, nil
 }
 
-var _ idamV1.IdentityManagerServer = &Manager{}
+var _ idamV1.AdminServer = &Manager{}

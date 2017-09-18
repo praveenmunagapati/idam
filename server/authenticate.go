@@ -16,16 +16,16 @@ import (
 
 // Login authenticates an identity and issues a new JWT
 func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.LoginResponse, error) {
-	if in.GetPrincipal() == "" {
+	if in.GetUrn() == "" {
 		return nil, errors.New("missing identity principal")
 	}
 
-	principal := urn.UNR(in.GetPrincipal())
+	principal := urn.URN(in.GetUrn())
 	if !principal.Valid() {
 		return nil, urn.ErrInvalidURN
 	}
 
-	ok, err := m.idam.Verify(principal, in.GetPassword(), in.GetOneTimeSecret())
+	ok, err := m.idam.Verify(principal, string(in.GetPassword()), string(in.GetOneTimeSecret()))
 
 	if err != nil || !ok {
 		return nil, idam.ErrNotAuthenticated
@@ -50,12 +50,12 @@ func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.L
 
 // Renew an authentication token when it is still valid
 func (m *Manager) Renew(ctx context.Context, in *idamV1.RenewTokenRequest) (*idamV1.RenewTokenResponse, error) {
-	token, ok := policy.TokenFromContext(ctx)
-	if !ok || !token.Valid() {
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
 		return nil, errors.New("token not valid")
 	}
 
-	identity, _, err := m.idam.Get(token.URN)
+	identity, _, err := m.idam.Get(auth.URN)
 	if err != nil {
 		return nil, err
 	}
@@ -74,12 +74,11 @@ func (m *Manager) Renew(ctx context.Context, in *idamV1.RenewTokenRequest) (*ida
 func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversationServer) error {
 	issue := false
 
-	ctx := stream.Context()
-	auth, err := m.getToken(ctx)
+	auth, ok := policy.TokenFromContext(stream.Context())
 
 	var identity *idam.Identity
 
-	if err == nil {
+	if ok && auth.Valid() == nil {
 		// Already authenticated, issue a new token
 		i, _, err := m.idam.Get(auth.URN)
 		if err != nil {
@@ -97,7 +96,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			return err
 		}
 
-		if ans.GetType() != idamV1.ConversationChallengeType_USERNAME || ans.GetUsername() == nil {
+		if ans.GetType() != idamV1.ConversationChallengeType_USERNAME || ans.GetUsername() == "" {
 			return errors.New("invalid type")
 		}
 
@@ -127,7 +126,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 		otp := ""
 
 		stream.Send(&idamV1.ConversationRequest{
-			Data: &idamV1.ConversationRequest_Question{
+			Request: &idamV1.ConversationRequest_Question{
 				Question: &idamV1.ConversationQuestion{
 					Type: idamV1.ConversationChallengeType_PASSWORD,
 				},
@@ -136,7 +135,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 
 		if has2FA {
 			stream.Send(&idamV1.ConversationRequest{
-				Data: &idamV1.ConversationRequest_Question{
+				Request: &idamV1.ConversationRequest_Question{
 					Question: &idamV1.ConversationQuestion{
 						Type: idamV1.ConversationChallengeType_TOTP,
 					},
@@ -197,8 +196,8 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 		}
 
 		resp := &idamV1.ConversationRequest{
-			Data: &idamV1.ConversationRequest_LoginSuccess{
-				LoginSuccess: &idamV1.LookupResponse{
+			Request: &idamV1.ConversationRequest_LoginSuccess{
+				LoginSuccess: &idamV1.LoginResponse{
 					Token: newToken,
 				},
 			},
