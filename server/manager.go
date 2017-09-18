@@ -11,6 +11,7 @@ import (
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/provider"
+	homebotApi "github.com/homebot/protobuf/pkg/api"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
@@ -136,8 +137,13 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityR
 	}, nil
 }
 
+// UpdateIdentity updates a given identity
+func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityRequest) (*idamV1.UpdateIdentityResponse, error) {
+	return nil, nil
+}
+
 // Lookup searches for identities matching the lookup request
-func (m *Manager) Lookup(ctx context.Context, in *idamV1.LookupRequest) (*idamV1.LookupResponse, error) {
+func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest) (*idamV1.LookupResponse, error) {
 	auth, ok := policy.TokenFromContext(ctx)
 	if !ok || auth.Valid() != nil {
 		return nil, idam.ErrNotAuthenticated
@@ -156,6 +162,31 @@ func (m *Manager) Lookup(ctx context.Context, in *idamV1.LookupRequest) (*idamV1
 	return &idamV1.LookupResponse{
 		Identities: res,
 	}, nil
+}
+
+// CreateRole creates a new role
+func (m *Manager) CreateRole(ctx context.Context, in *idamV1.CreateRoleRequest) (*idamV1.CreateRoleResponse, error) {
+	return nil, nil
+}
+
+// ListRoles returns all roles matching the lookup filter
+func (m *Manager) ListRoles(ctx context.Context, in *idamV1.RoleLookupRequest) (*idamV1.RoleLookupResponse, error) {
+	return nil, nil
+}
+
+// DeleteRole deletes a role
+func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) (*homebotApi.Empty, error) {
+	return &homebotApi.Empty{}, nil
+}
+
+// AssignRole assigns a role to an identity
+func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) (*idamV1.AssignRoleResponse, error) {
+	return nil, nil
+}
+
+// UnassignRole removes a role from an identity
+func (m *Manager) UnassignRole(ctx context.Context, in *idamV1.UnassignRoleRequest) (*idamV1.UnassignRoleResponse, error) {
+	return nil, nil
 }
 
 var _ idamV1.AdminServer = &Manager{}

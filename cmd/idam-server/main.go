@@ -7,6 +7,7 @@ import (
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/provider/file"
 	"github.com/homebot/idam/server"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"google.golang.org/grpc"
 )
 
@@ -23,19 +24,24 @@ func main() {
 		log.Fatal(err)
 	}
 
-	policyEnforcer := policy.NewEnforcer([]string{
+	policyEnforcer, err := policy.NewEnforcer([]string{
 		"api/idam/v1/admin.proto",
 		"api/idam/v1/profile.proto",
 		"api/idam/v1/auth.proto",
 	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(policyEnforcer.UnaryInterceptor),
 		grpc.StreamInterceptor(policyEnforcer.StreamInterceptor),
 	)
 
-	idam_api.RegisterIdentityManagerServer(grpcServer, srv)
-	idam_api.RegisterAuthenticatorServer(grpcServer, srv)
+	idamV1.RegisterAdminServer(grpcServer, srv)
+	idamV1.RegisterProfileServer(grpcServer, srv)
+	idamV1.RegisterAuthenticatorServer(grpcServer, srv)
 
 	if err := grpcServer.Serve(listener); err != nil {
 		log.Fatal(err)

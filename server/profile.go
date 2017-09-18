@@ -18,7 +18,7 @@ func (m *Manager) GetProfile(ctx context.Context, _ *homebotApi.Empty) (*idamV1.
 		return nil, idam.ErrNotAuthenticated
 	}
 
-	identity, has2FA, err := m.idam.Get(auth.URN)
+	identity, _, err := m.idam.Get(auth.URN)
 	if err != nil {
 		return nil, err
 	}
