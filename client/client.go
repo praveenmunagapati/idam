@@ -25,12 +25,15 @@ type Client interface {
 
 	// SetUserData updates the current user settings
 	SetUserData(ctx context.Context, userData idam.UserData) error
+
+	// Conn returns the underlying grpc client connection
+	Conn() *grpc.ClientConn
 }
 
 // AdminClient is an IDAM administration client
 type AdminClient interface {
 	// CreateIdentity creates a new identity
-	CreateIdentity(ctx context.Context, identity idam.Identity) error
+	CreateIdentity(ctx context.Context, identity idam.Identity, password string, with2FA bool) (string, error)
 
 	// DeleteIdentity deletes the given identity
 	DeleteIdentity(ctx context.Context, identity string) error
@@ -51,10 +54,10 @@ type AdminClient interface {
 	DeleteRole(ctx context.Context, role string) error
 
 	// AssignRole assings a role to an identity
-	AssignRole(ctx context.Context, role, identity string) error
+	AssignRole(ctx context.Context, identity string, roles ...string) error
 
 	// UnassignRole removes a role from an identity
-	UnassignRole(ctx context.Context, role, identity string) error
+	UnassignRole(ctx context.Context, identity string, roles ...string) error
 }
 
 type client struct {
@@ -149,4 +152,154 @@ func (cli *client) Change2FA(ctx context.Context, enabled bool, currentOTP strin
 	}
 
 	return res.GetSecret(), nil
+}
+
+func (cli *client) Conn() *grpc.ClientConn {
+	return cli.conn
+}
+
+type adminClient struct {
+	conn *grpc.ClientConn
+}
+
+// NewAuthenticatedAdminClient returns a new authenticated admin client using `token`
+// If `token` is invalid or has been expired a new one will be requested using `cred`
+func NewAuthenticatedAdminClient(endpoint, token string, cred CredentialsFunc, opts ...grpc.DialOption) (AdminClient, error) {
+	cli, err := NewAuthenticatedClient(endpoint, token, cred, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adminClient{
+		conn: cli.Conn(),
+	}, nil
+}
+
+// NewAdminClient returns a new authenticated admin client by requesting a new
+// authentication token
+func NewAdminClient(endpoint string, cred CredentialsFunc, opts ...grpc.DialOption) (AdminClient, error) {
+	return NewAuthenticatedAdminClient(endpoint, "", cred, opts...)
+}
+
+func (cli *adminClient) CreateIdentity(ctx context.Context, identity idam.Identity, password string, with2FA bool) (string, error) {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	res, err := client.CreateIdentity(ctx, &idamV1.CreateIdentityRequest{
+		Identity:  identity.ToProtobuf(),
+		Password:  password,
+		Enable2FA: with2FA,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return res.GetTotpSecret(), nil
+}
+
+func (cli *adminClient) DeleteIdentity(ctx context.Context, name string) error {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	if _, err := client.DeleteIdentity(ctx, &idamV1.DeleteIdentityRequest{
+		Urn: name,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) UpdateIdentity(ctx context.Context, identity idam.Identity) error {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	if _, err := client.UpdateIdentity(ctx, &idamV1.UpdateIdentityRequest{
+		Identity: identity.ToProtobuf(),
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) LookupIdentities(ctx context.Context) ([]idam.Identity, error) {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	res, err := client.LookupIdentities(ctx, &idamV1.LookupRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	var identities []idam.Identity
+
+	for _, ri := range res.GetIdentities() {
+		i := idam.IdentityFromProto(ri)
+		if i.Valid() != nil {
+			// TODO(ppacher): skip but log
+			continue
+		}
+
+		identities = append(identities, *i)
+	}
+
+	return identities, nil
+}
+
+func (cli *adminClient) CreateRole(ctx context.Context, role string) error {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	if _, err := client.CreateRole(ctx, &idamV1.CreateRoleRequest{
+		RoleName: role,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) DeleteRole(ctx context.Context, role string) error {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	if _, err := client.DeleteRole(ctx, &idamV1.DeleteRoleRequest{
+		RoleName: role,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) ListRoles(ctx context.Context) ([]string, error) {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	res, err := client.ListRoles(ctx, &idamV1.RoleLookupRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return res.GetRoleNames(), nil
+}
+
+func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles ...string) error {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	if _, err := client.AssignRole(ctx, &idamV1.AssignRoleRequest{
+		Identity: identity,
+		RoleName: roles,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles ...string) error {
+	client := idamV1.NewAdminClient(cli.conn)
+
+	if _, err := client.UnassignRole(ctx, &idamV1.UnassignRoleRequest{
+		Identity: identity,
+		RoleName: roles,
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
