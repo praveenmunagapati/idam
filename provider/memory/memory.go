@@ -266,9 +266,9 @@ func (m *Memory) Update(u urn.URN, ident idam.Identity) error {
 		return errors.New("cannot change identity type")
 	}
 
-	original.Groups = make([]urn.URN, len(ident.Groups))
-	for i, g := range ident.Groups {
-		original.Groups[i] = g
+	original.Roles = make([]urn.URN, len(ident.Roles))
+	for i, g := range ident.Roles {
+		original.Roles[i] = g
 	}
 
 	original.Labels = make(map[string]string)

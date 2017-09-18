@@ -22,14 +22,14 @@ import (
 
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
 )
 
 var (
 	createName           string
 	create2FA            bool
-	createGroups         []string
+	createRoles          []string
 	createUser           bool
 	createService        bool
 	createFirstName      string
@@ -63,24 +63,24 @@ var createCmd = &cobra.Command{
 			log.Fatal("--mail is required for --user")
 		}
 
-		var groups []urn.URN
+		var roles []urn.URN
 
-		for _, g := range createGroups {
+		for _, g := range createRoles {
 			u := urn.URN(g)
 			if !u.Valid() {
 				log.Fatalf("group %s is not valid", g)
 			}
 
-			groups = append(groups, u)
+			roles = append(roles, u)
 		}
 
 		i := idam.Identity{
-			Name:   createName,
-			Groups: groups,
+			Name:  createName,
+			Roles: roles,
 		}
 
 		if createUser {
-			i.Type = idam_api.IdentityType_USER
+			i.Type = idamV1.IdentityType_USER
 			i.UserData = &idam.UserData{
 				PrimaryMail:    createPrimaryMail,
 				SecondaryMails: createSecondaryMails,
@@ -88,7 +88,7 @@ var createCmd = &cobra.Command{
 				LastName:       createLastName,
 			}
 		} else {
-			i.Type = idam_api.IdentityType_SERVICE
+			i.Type = idamV1.IdentityType_SERVICE
 		}
 
 		password := ""
@@ -116,12 +116,12 @@ var createCmd = &cobra.Command{
 		}
 		defer conn.Close()
 
-		cli := idam_api.NewIdentityManagerClient(conn)
+		cli := idamV1.NewAdminClient(conn)
 
-		res, err := cli.CreateIdentity(context.Background(), &idam_api.CreateIdentityRequest{
+		res, err := cli.CreateIdentity(context.Background(), &idamV1.CreateIdentityRequest{
 			Identity:  i.ToProtobuf(),
-			Enable2FA: create2FA,
 			Password:  password,
+			Enable2FA: create2FA,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -129,8 +129,8 @@ var createCmd = &cobra.Command{
 
 		fmt.Println("User create successfully")
 
-		if create2FA && res.GetSettings2FA() != nil {
-			fmt.Printf("OTP-Token: %s\n", res.GetSettings2FA().GetSecret())
+		if create2FA && res.GetTotpSecret() != "" {
+			fmt.Printf("OTP-Token: %s\n", res.GetTotpSecret())
 		}
 	},
 }
@@ -140,7 +140,7 @@ func init() {
 
 	createCmd.Flags().StringVar(&createName, "name", "", "Name for the new account")
 	createCmd.Flags().BoolVar(&create2FA, "otp", false, "Enable 2-factor-authentication")
-	createCmd.Flags().StringSliceVar(&createGroups, "groups", []string{}, "A list of group URNs the identity belongs to")
+	createCmd.Flags().StringSliceVar(&createRoles, "roles", []string{}, "A list of roles the identity belongs to")
 	createCmd.Flags().BoolVar(&createUser, "user", false, "Create a new user account")
 	createCmd.Flags().BoolVar(&createService, "service", false, "Create a new service account")
 	createCmd.Flags().StringVar(&createFirstName, "first-name", "", "First name of the user")

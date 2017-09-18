@@ -3,17 +3,16 @@ package server
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/homebot/core/urn"
 
 	"github.com/homebot/core/log"
 	"github.com/homebot/idam"
+	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/provider"
-	"github.com/homebot/idam/token"
 	homebot_api "github.com/homebot/protobuf/pkg/api"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
 // Manager implements the gRPC Identity Manager Server interface
@@ -59,18 +58,13 @@ func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
 }
 
 // CreateIdentity creates a new identity
-func (m *Manager) CreateIdentity(ctx context.Context, in *idam_api.CreateIdentityRequest) (*idam_api.CreateIdentityResponse, error) {
-	token, err := m.getToken(ctx)
+func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityRequest) (*idamV1.CreateIdentityResponse, error) {
+	token, err := policy.TokenFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	logger := log.WithURN(token.URN)
-
-	if !token.HasGroup(urn.IdamAdminGroup) {
-		logger.Warnf("not allowed to create a new identity")
-		return nil, idam.ErrNotAuthorized
-	}
 
 	if in == nil || in.Identity == nil {
 		return nil, errors.New("invalid message")
@@ -100,12 +94,12 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idam_api.CreateIdentit
 	}
 	logger.Infof("created new identity %q %s 2FA", identity.URN().String(), logFA)
 
-	resp := &idam_api.CreateIdentityResponse{}
+	resp := &idamV1.CreateIdentityResponse{}
 
 	if in.GetEnable2FA() {
-		resp.Settings2FA = &idam_api.Settings2FA{
+		resp.Settings2FA = &idamV1.Settings2FA{
 			Secret: otpSecret,
-			Type:   idam_api.Settings2FA_TOTP,
+			Type:   idamV1.Settings2FA_TOTP,
 		}
 	}
 
@@ -114,7 +108,7 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idam_api.CreateIdentit
 
 // DeleteIdentity deletes an identity
 func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*homebot_api.Empty, error) {
-	token, err := m.getToken(ctx)
+	token, err := policy.TokenFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +124,6 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 		return nil, errors.New("invalid URN")
 	}
 
-	// Only admin and the identity itself can delete it
-	if !token.HasGroup(urn.IdamAdminGroup) && token.URN.String() == u.String() {
-		logger.Warnf("not allowed to delete identity %q", u.String())
-		return nil, idam.ErrNotAuthorized
-	}
-
 	if err := m.idam.Delete(u); err != nil {
 		return nil, err
 	}
@@ -145,8 +133,8 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *homebot_api.URN) (*hom
 }
 
 // List returns a list of identities
-func (m *Manager) List(in *homebot_api.Empty, stream idam_api.IdentityManager_ListServer) error {
-	token, err := m.getToken(stream.Context())
+func (m *Manager) List(in *homebot_api.Empty, stream idamV1.IdentityManager_ListServer) error {
+	token, err := policy.TokenFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -162,14 +150,4 @@ func (m *Manager) List(in *homebot_api.Empty, stream idam_api.IdentityManager_Li
 	return nil
 }
 
-func (m *Manager) getToken(ctx context.Context) (*token.Token, error) {
-	return token.FromMetadata(ctx, func(issuer string, alg string) (interface{}, error) {
-		if strings.ToUpper(alg) != strings.ToUpper(m.alg) {
-			return nil, errors.New("unexpected token algorithim")
-		}
-
-		return m.signingCert, nil
-	})
-}
-
-var _ idam_api.IdentityManagerServer = &Manager{}
+var _ idamV1.IdentityManagerServer = &Manager{}

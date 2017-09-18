@@ -2,18 +2,76 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"time"
 
 	"github.com/homebot/core/log"
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
+	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/token"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
-// Authenticate authenticates an identity and issues a new JWT
-func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer) error {
+// Login authenticates an identity and issues a new JWT
+func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.LoginResponse, error) {
+	if in.GetPrincipal() == "" {
+		return nil, errors.New("missing identity principal")
+	}
+
+	principal := urn.UNR(in.GetPrincipal())
+	if !principal.Valid() {
+		return nil, urn.ErrInvalidURN
+	}
+
+	ok, err := m.idam.Verify(principal, in.GetPassword(), in.GetOneTimeSecret())
+
+	if err != nil || !ok {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	identity, _, err := m.idam.Get(principal)
+	if err != nil {
+		return nil, err
+	}
+
+	newToken, err := token.New(identity.URN(), identity.Roles, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithURN(identity.URN()).Infof("issuing new JWT")
+
+	return &idamV1.LoginResponse{
+		Token: newToken,
+	}, nil
+}
+
+// Renew an authentication token when it is still valid
+func (m *Manager) Renew(ctx context.Context, in *idamV1.RenewTokenRequest) (*idamV1.RenewTokenResponse, error) {
+	token, ok := policy.TokenFromContext(ctx)
+	if !ok || !token.Valid() {
+		return nil, errors.New("token not valid")
+	}
+
+	identity, _, err := m.idam.Get(token.URN)
+	if err != nil {
+		return nil, err
+	}
+
+	newToken, err := token.New(identity.URN(), identity.Roles, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+	if err != nil {
+		return nil, err
+	}
+
+	return &idamV1.RenewTokenResponse{
+		Token: newToken,
+	}, nil
+}
+
+// StartConversation authenticates an identity and issues a new JWT
+func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversationServer) error {
 	issue := false
 
 	ctx := stream.Context()
@@ -39,11 +97,11 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 			return err
 		}
 
-		if ans.GetType() != idam_api.QuestionType_USERNAME || ans.GetUsername() == nil {
+		if ans.GetType() != idamV1.ConversationChallengeType_USERNAME || ans.GetUsername() == nil {
 			return errors.New("invalid type")
 		}
 
-		u := urn.FromProtobuf(ans.GetUsername().GetUrn())
+		u := urn.URN(ans.GetUsername())
 		if !u.Valid() {
 			return urn.ErrInvalidURN
 		}
@@ -68,19 +126,19 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 		pass := ""
 		otp := ""
 
-		stream.Send(&idam_api.AuthRequest{
-			Data: &idam_api.AuthRequest_Question{
-				Question: &idam_api.Question{
-					Type: idam_api.QuestionType_PASSWORD,
+		stream.Send(&idamV1.ConversationRequest{
+			Data: &idamV1.ConversationRequest_Question{
+				Question: &idamV1.ConversationQuestion{
+					Type: idamV1.ConversationChallengeType_PASSWORD,
 				},
 			},
 		})
 
 		if has2FA {
-			stream.Send(&idam_api.AuthRequest{
-				Data: &idam_api.AuthRequest_Question{
-					Question: &idam_api.Question{
-						Type: idam_api.QuestionType_OTP,
+			stream.Send(&idamV1.ConversationRequest{
+				Data: &idamV1.ConversationRequest_Question{
+					Question: &idamV1.ConversationQuestion{
+						Type: idamV1.ConversationChallengeType_TOTP,
 					},
 				},
 			})
@@ -93,20 +151,20 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 			}
 
 			switch msg.GetType() {
-			case idam_api.QuestionType_OTP:
+			case idamV1.ConversationChallengeType_TOTP:
 				if ok2FA {
 					return errors.New("unexpected message")
 				}
 
-				otp = msg.GetSecret()
+				otp = msg.GetOneTimeSecret()
 				ok2FA = true
 
-			case idam_api.QuestionType_PASSWORD:
+			case idamV1.ConversationChallengeType_PASSWORD:
 				if okPass {
 					return errors.New("unexpected message")
 				}
 
-				pass = msg.GetSecret()
+				pass = msg.GetPassword()
 				okPass = true
 			default:
 				return errors.New("unexpected message")
@@ -133,14 +191,16 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 	}
 
 	if issue && identity != nil {
-		newToken, err := token.New(identity.URN(), identity.Groups, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+		newToken, err := token.New(identity.URN(), identity.Roles, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
 		if err != nil {
 			return err
 		}
 
-		resp := &idam_api.AuthRequest{
-			Data: &idam_api.AuthRequest_Token{
-				Token: newToken,
+		resp := &idamV1.ConversationRequest{
+			Data: &idamV1.ConversationRequest_LoginSuccess{
+				LoginSuccess: &idamV1.LookupResponse{
+					Token: newToken,
+				},
 			},
 		}
 
@@ -156,4 +216,4 @@ func (m *Manager) Authenticate(stream idam_api.Authenticator_AuthenticateServer)
 	return idam.ErrNotAuthenticated
 }
 
-var _ idam_api.AuthenticatorServer = &Manager{}
+var _ idamV1.AuthenticatorServer = &Manager{}

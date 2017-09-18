@@ -25,7 +25,7 @@ import (
 	"github.com/homebot/core/urn"
 	"github.com/homebot/idam/client"
 	"github.com/homebot/idam/token"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -65,11 +65,11 @@ var loginCmd = &cobra.Command{
 			}
 		}
 
-		newToken, err := client.Authenticate(context.Background(), "", conn, userName, func(typ idam_api.QuestionType) (string, error) {
+		newToken, err := client.Authenticate(context.Background(), "", conn, userName, func(typ idamV1.ConversationChallengeType) (string, error) {
 			switch typ {
-			case idam_api.QuestionType_PASSWORD:
+			case idamV1.ConversationChallengeType_PASSWORD:
 				fmt.Printf("Password: ")
-			case idam_api.QuestionType_OTP:
+			case idamV1.ConversationChallengeType_TOTP:
 				fmt.Printf("2FA-Token: ")
 			}
 

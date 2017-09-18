@@ -19,8 +19,7 @@ import (
 	"log"
 
 	"github.com/homebot/idam"
-	homebot_api "github.com/homebot/protobuf/pkg/api"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -35,19 +34,14 @@ var listCmd = &cobra.Command{
 		}
 		defer conn.Close()
 
-		cli := idam_api.NewIdentityManagerClient(conn)
+		cli := idamV1.NewAdminClient(conn)
 
-		stream, err := cli.List(context.Background(), &homebot_api.Empty{})
+		response, err := cli.LookupIdentities(context.Background(), &idamV1.LookupRequest{})
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		for {
-			msg, err := stream.Recv()
-			if err != nil {
-				break
-			}
-
+		for _, msg := range response.GetIdentities() {
 			i := idam.IdentityFromProto(msg)
 			identityType := "User-Account"
 
@@ -55,7 +49,7 @@ var listCmd = &cobra.Command{
 				identityType = "Service-Account"
 			}
 
-			fmt.Printf("%s\t%s\t%d groups\n", i.Name, identityType, len(i.Groups))
+			fmt.Printf("%s\t%s\t%d groups\n", i.Name, identityType, len(i.Roles))
 		}
 	},
 }

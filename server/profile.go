@@ -8,11 +8,11 @@ import (
 	"github.com/homebot/idam"
 
 	iotc_api "github.com/homebot/protobuf/pkg/api"
-	idam_api "github.com/homebot/protobuf/pkg/api/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
 // GetProfile returns the identitiy profile
-func (m *Manager) GetProfile(ctx context.Context, in *iotc_api.URN) (*idam_api.Profile, error) {
+func (m *Manager) GetProfile(ctx context.Context, in *iotc_api.URN) (*idamV1.Profile, error) {
 	auth, err := m.getToken(ctx)
 	if err != nil {
 		return nil, err
@@ -32,14 +32,14 @@ func (m *Manager) GetProfile(ctx context.Context, in *iotc_api.URN) (*idam_api.P
 		return nil, err
 	}
 
-	return &idam_api.Profile{
+	return &idamV1.Profile{
 		Identity: identity.ToProtobuf(),
 		Has2FA:   has2FA,
 	}, nil
 }
 
 // ChangePassword changes the identities password
-func (m *Manager) ChangePassword(ctx context.Context, in *idam_api.ChangePasswordRequest) (*iotc_api.Empty, error) {
+func (m *Manager) ChangePassword(ctx context.Context, in *idamV1.ChangePasswordRequest) (*iotc_api.Empty, error) {
 	auth, err := m.getToken(ctx)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (m *Manager) ChangePassword(ctx context.Context, in *idam_api.ChangePasswor
 }
 
 // Change2FA changes two-factor-authentication settings
-func (m *Manager) Change2FA(ctx context.Context, in *idam_api.Change2FARequest) (*idam_api.Change2FAResult, error) {
+func (m *Manager) Change2FA(ctx context.Context, in *idamV1.Change2FARequest) (*idamV1.Change2FAResult, error) {
 	auth, err := m.getToken(ctx)
 	if err != nil {
 		return nil, err
@@ -113,12 +113,12 @@ func (m *Manager) Change2FA(ctx context.Context, in *idam_api.Change2FARequest) 
 			return nil, err
 		}
 
-		return &idam_api.Change2FAResult{
+		return &idamV1.Change2FAResult{
 			Urn: urn.ToProtobuf(u),
-			Result: &idam_api.Change2FAResult_Settings{
-				Settings: &idam_api.Settings2FA{
+			Result: &idamV1.Change2FAResult_Settings{
+				Settings: &idamV1.Settings2FA{
 					Secret: secret,
-					Type:   idam_api.Settings2FA_TOTP,
+					Type:   idamV1.Settings2FA_TOTP,
 				},
 			},
 		}, nil
@@ -140,9 +140,9 @@ func (m *Manager) Change2FA(ctx context.Context, in *idam_api.Change2FARequest) 
 			return nil, err
 		}
 
-		return &idam_api.Change2FAResult{
+		return &idamV1.Change2FAResult{
 			Urn: urn.ToProtobuf(u),
-			Result: &idam_api.Change2FAResult_Disabled{
+			Result: &idamV1.Change2FAResult_Disabled{
 				Disabled: true,
 			},
 		}, nil
@@ -152,7 +152,7 @@ func (m *Manager) Change2FA(ctx context.Context, in *idam_api.Change2FARequest) 
 }
 
 // UpdateProfile updates the user profile
-func (m *Manager) UpdateProfile(ctx context.Context, in *idam_api.Identity) (*idam_api.Profile, error) {
+func (m *Manager) UpdateProfile(ctx context.Context, in *idamV1.Identity) (*idamV1.Profile, error) {
 	auth, err := m.getToken(ctx)
 	if err != nil {
 		return nil, err
@@ -185,10 +185,10 @@ func (m *Manager) UpdateProfile(ctx context.Context, in *idam_api.Identity) (*id
 		return nil, err
 	}
 
-	return &idam_api.Profile{
+	return &idamV1.Profile{
 		Identity: ident.ToProtobuf(),
 		Has2FA:   has2FA,
 	}, nil
 }
 
-var _ idam_api.ProfileManagerServer = &Manager{}
+var _ idamV1.ProfileManagerServer = &Manager{}
