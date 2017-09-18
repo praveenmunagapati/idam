@@ -36,6 +36,14 @@ func ContextWithToken(ctx context.Context, token *token.Token) context.Context {
 	return context.WithValue(ctx, PolicyTokenKey, token)
 }
 
+// JWTKeyVerifier provides the JWT verification key based on the issuer and
+// algorithm specified in the token
+type JWTKeyVerifier interface {
+	// VerificationKey should return the verification key for the given issuer
+	// and algorithm. It implements token.KeyProviderFunc
+	VerificationKey(issuer string, alg string) (interface{}, error)
+}
+
 func extractFile(gz []byte) (*protobuf.FileDescriptorProto, error) {
 	r, err := gzip.NewReader(bytes.NewReader(gz))
 	if err != nil {
@@ -60,15 +68,13 @@ func extractFile(gz []byte) (*protobuf.FileDescriptorProto, error) {
 // attached to the service definition
 type Enforcer struct {
 	services map[string]*protobuf.ServiceDescriptorProto
-	keyFn    token.KeyProviderFunc
 }
 
 // NewEnforcer returns a new policy enforcer using the given protocol buffer files
 // and `keyFn` for verifying JSON Web Tokens
-func NewEnforcer(files []string, keyFn token.KeyProviderFunc) (*Enforcer, error) {
+func NewEnforcer(files []string) (*Enforcer, error) {
 	p := &Enforcer{
 		services: make(map[string]*protobuf.ServiceDescriptorProto),
-		keyFn:    keyFn,
 	}
 
 	for _, f := range files {
@@ -144,7 +150,7 @@ L:
 // UnaryInterceptor inspects unary RPC calls and enforces HomeBot API policies attached
 // to the service definition
 func (p *Enforcer) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	ctx, err := p.enforce(ctx, req, false, info.FullMethod)
+	ctx, err := p.enforce(ctx, req, info.Server, false, info.FullMethod)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +171,7 @@ func (s *streamContextWrapper) Context() context.Context {
 // StreamInterceptor inspects stream RPCs and enforces HomeBot API policies attached to
 // the service definition
 func (p *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	ctx, err := p.enforce(stream.Context(), nil, info.IsClientStream, info.FullMethod)
+	ctx, err := p.enforce(stream.Context(), srv, nil, info.IsClientStream, info.FullMethod)
 	if err != nil {
 		return err
 	}
@@ -178,13 +184,18 @@ func (p *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, 
 	return handler(wrappedStream, stream)
 }
 
-func (p *Enforcer) enforce(ctx context.Context, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
+func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
 	policy, err := p.getPolicy(methodName)
 	if err != nil {
 		return ctx, err
 	}
 
-	jwt, tokenErr := token.FromMetadata(ctx, p.keyFn)
+	verifier, ok := srv.(JWTKeyVerifier)
+	if !ok {
+		return nil, errors.New("server configuration error: cannot verify key")
+	}
+
+	jwt, tokenErr := token.FromMetadata(ctx, verifier.VerificationKey)
 
 	authRequired := false
 

@@ -56,6 +56,11 @@ func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
 	return m, nil
 }
 
+// VerificationKey returns the JWT token verification key and implements policy.JWTKeyVerifier
+func (m *Manager) VerificationKey(issuer string, alg string) (interface{}, error) {
+	return m.signingCert, nil
+}
+
 // CreateIdentity creates a new identity
 func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityRequest) (*idamV1.CreateIdentityResponse, error) {
 	token, ok := policy.TokenFromContext(ctx)
