@@ -2,39 +2,15 @@ package client
 
 import (
 	"context"
-	"errors"
 
 	"github.com/homebot/idam"
-	"github.com/homebot/idam/token"
+	homebotApi "github.com/homebot/protobuf/pkg/api"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"google.golang.org/grpc"
 )
 
-// AuthClient supports authentication at an IDAM based authentication server
-type AuthClient interface {
-	// Login performs a login request against IDAM and returns the signed JSON
-	// Web token. The token will also be stored within the client itself so further
-	// requests to IDAM are authenticated
-	Login(ctx context.Context, username, password, otp string) (string, error)
-
-	// Renew tries to renew the clients token and will return the new token
-	// issued by the authority
-	Renew(ctx context.Context) (string, error)
-
-	// Authenticated returns true if the client is still authenticated (e.g. has a valid
-	// JWT)
-	Authenticated() bool
-
-	// Conn returns the underlying grpc.ClientConn
-	Conn() *grpc.ClientConn
-
-	// Close closes the unerlying gRPC connection
-	Close() error
-}
-
 // Client is a gRPC client wrapper for communicating with IDAM
 type Client interface {
-	AuthClient
-
 	// ChangePassword changes the password for the current identity
 	ChangePassword(ctx context.Context, current, new string) error
 
@@ -53,8 +29,6 @@ type Client interface {
 
 // AdminClient is an IDAM administration client
 type AdminClient interface {
-	AuthClient
-
 	// CreateIdentity creates a new identity
 	CreateIdentity(ctx context.Context, identity idam.Identity) error
 
@@ -83,72 +57,96 @@ type AdminClient interface {
 	UnassignRole(ctx context.Context, role, identity string) error
 }
 
-type authClient struct {
+type client struct {
 	conn *grpc.ClientConn
-
-	creds *token.JWTCredentials
-
-	dialOpt []grpc.DialOption
 }
 
-// ClientOption is an option for AuthClient
-type ClientOption func(c *authClient) error
-
-// WithDialOption sets a gRPC.DialOption for the connection
-func WithDialOption(opts ...grpc.DialOption) ClientOption {
-	return func(c *authClient) error {
-		c.dialOpt = append(c.dialOpt, opts...)
-		return nil
-	}
+// NewClient creates a new IDAM client for the given endpoint and credential functions
+func NewClient(endpoint string, cred CredentialsFunc, opts ...grpc.DialOption) (Client, error) {
+	return NewAuthenticatedClient(endpoint, "", cred, opts...)
 }
 
-// WithToken sets the authentication token to use
-func WithToken(t string) ClientOption {
-	return func(c *authClient) error {
-		if c.creds != nil {
-			return errors.New("token already set")
-		}
-
-		c.creds = token.NewRPCCredentials(t)
-		return nil
+// NewAuthenticatedClient returns a new client using the given `creds` and the authentication
+// `token`
+func NewAuthenticatedClient(endpoint, token string, cred CredentialsFunc, opts ...grpc.DialOption) (Client, error) {
+	rpcCred, err := NewIdamCredentials(endpoint, token, cred, opts...)
+	if err != nil {
+		return nil, err
 	}
-}
+	opts = append(opts, grpc.WithPerRPCCredentials(rpcCred))
 
-// NewAuthClient connects the an IDAM gRPC server and returns an AuthClient
-func NewAuthClient(address string, opts ...ClientOption) (AuthClient, error) {
-	cli := &authClient{}
-	for _, fn := range opts {
-		if err := fn(cli); err != nil {
-			return nil, err
-		}
-	}
-
-	if cli.creds == nil {
-		cli.creds = token.NewRPCCredentials("")
-	}
-
-	conn, err := grpc.Dial(address, cli.dialOpt...)
+	conn, err := grpc.Dial(endpoint, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	cli.conn = conn
-
-	return cli, nil
+	return &client{
+		conn: conn,
+	}, nil
 }
 
-func (cli *authClient) Conn() *grpc.ClientConn {
-	return cli.conn
-}
+// ChangePassword changes the password of the currently authenticated identity
+func (cli *client) ChangePassword(ctx context.Context, oldPwd, newPwd string) error {
+	client := idamV1.NewProfileClient(cli.conn)
 
-func (cli *authClient) Close() error {
-	return cli.conn.Close()
-}
+	_, err := client.ChangePassword(ctx, &idamV1.ChangePasswordRequest{
+		CurrentPassword: oldPwd,
+		NewPassword:     newPwd,
+	})
 
-func (cli *authClient) Authenticated() bool {
-	if cli.creds.Token == "" {
-		return false
+	if err != nil {
+		return err
 	}
 
-	return false
+	return nil
+}
+
+// GetProfile returns the profile for the currently authenticated identity
+func (cli *client) GetProfile(ctx context.Context) (*idam.Identity, error) {
+	client := idamV1.NewProfileClient(cli.conn)
+
+	res, err := client.GetProfile(ctx, &homebotApi.Empty{})
+	if err != nil {
+		return nil, err
+	}
+
+	identity := idam.IdentityFromProto(res)
+	if err := identity.Valid(); err != nil {
+		return identity, err
+	}
+
+	return identity, nil
+}
+
+// SetUserData updates the users profile
+func (cli *client) SetUserData(ctx context.Context, data idam.UserData) error {
+	client := idamV1.NewProfileClient(cli.conn)
+
+	_, err := client.SetUserData(ctx, &idamV1.UserData{
+		EmailAddress:           data.PrimaryMail,
+		SecondaryMailAddresses: data.SecondaryMails,
+		FirstName:              data.FirstName,
+		LastName:               data.LastName,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Change2FA changes two-factor-authentication settings for the current idenity.
+// If 2FA should be disable, the current TOTP must be passed
+func (cli *client) Change2FA(ctx context.Context, enabled bool, currentOTP string) (string, error) {
+	client := idamV1.NewProfileClient(cli.conn)
+
+	res, err := client.Change2FA(ctx, &idamV1.Change2FARequest{
+		CurrentOneTimeSecret: currentOTP,
+		Enabled:              enabled,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return res.GetSecret(), nil
 }
