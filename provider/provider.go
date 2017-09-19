@@ -51,4 +51,16 @@ type IdentityManager interface {
 	// GetByName returns the identity with the given name and
 	// a boolean indicating if the user has 2FA enabled or not
 	GetByName(string) (*idam.Identity, bool, error)
+
+	// GetRoles returns a list of roles
+	GetRoles() []string
+
+	// IdentitiesByRole returns a list of identities that have a given role assigned
+	IdentitiesByRole(string) []idam.Identity
+
+	// CreateRole creates a new role
+	CreateRole(string) error
+
+	// DeleteRole deletes a role
+	DeleteRole(string) error
 }

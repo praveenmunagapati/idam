@@ -27,12 +27,15 @@ type FileProvider struct {
 	identities map[urn.URN]*idam.Identity
 	otpSecrets map[urn.URN]string
 	passwords  map[urn.URN][]byte
+
+	roles []string
 }
 
 type Data struct {
 	Identities map[urn.URN]*idam.Identity `json:"identities"`
 	OtpSecrets map[urn.URN]string         `json:"otps"`
 	Passwords  map[urn.URN][]byte         `json:"passwords"`
+	Roles      []string                   `json:"roles"`
 }
 
 // New creates a new file based IdentityManager
@@ -66,6 +69,7 @@ func (m *FileProvider) read() error {
 	m.passwords = d.Passwords
 	m.identities = d.Identities
 	m.otpSecrets = d.OtpSecrets
+	m.roles = d.Roles
 
 	return nil
 }
@@ -77,6 +81,7 @@ func (m *FileProvider) write() error {
 		Passwords:  m.passwords,
 		Identities: m.identities,
 		OtpSecrets: m.otpSecrets,
+		Roles:      m.roles,
 	}
 
 	blob, err := json.MarshalIndent(d, "", "  ")
@@ -354,4 +359,92 @@ func (m *FileProvider) Update(u urn.URN, ident idam.Identity) error {
 	}
 
 	return m.write()
+}
+
+func (m *FileProvider) containsRole(r string) bool {
+	return contains(m.roles, r)
+}
+
+func contains(arr []string, needle string) bool {
+	for _, v := range arr {
+		if v == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// CreateRole creates a new role
+func (m *FileProvider) CreateRole(r string) error {
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	if m.containsRole(r) {
+		return nil
+	}
+
+	m.roles = append(m.roles, r)
+
+	return m.write()
+}
+
+func (m *FileProvider) IdentitiesByRole(r string) []idam.Identity {
+	m.rw.RLock()
+	defer m.rw.RUnlock()
+
+	var identities []idam.Identity
+
+	contains := func(arr []urn.URN, needle string) bool {
+		for _, v := range arr {
+			if v.String() == needle {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, v := range m.identities {
+		if contains(v.Roles, r) {
+			identities = append(identities, *v)
+		}
+	}
+
+	return identities
+}
+
+// DeleteRole deletes a role
+func (m *FileProvider) DeleteRole(r string) error {
+	m.rw.RLock()
+	has := m.containsRole(r)
+	m.rw.RUnlock()
+
+	if !has {
+		return nil
+	}
+
+	m.rw.Lock()
+	defer m.rw.Unlock()
+
+	var roles []string
+	for _, role := range m.roles {
+		if role != r {
+			roles = append(roles, role)
+		}
+	}
+
+	m.roles = roles
+	return m.write()
+}
+
+// GetRoles returns a list of roles
+func (m *FileProvider) GetRoles() []string {
+	m.rw.RLock()
+	defer m.rw.RUnlock()
+
+	var roles []string
+	for _, role := range m.roles {
+		roles = append(roles, role)
+	}
+
+	return roles
 }
