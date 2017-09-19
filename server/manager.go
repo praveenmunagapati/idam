@@ -142,7 +142,7 @@ func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityR
 	return nil, nil
 }
 
-// Lookup searches for identities matching the lookup request
+// LookupIdentities searches for identities matching the lookup request
 func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest) (*idamV1.LookupResponse, error) {
 	auth, ok := policy.TokenFromContext(ctx)
 	if !ok || auth.Valid() != nil {
@@ -166,16 +166,64 @@ func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest
 
 // CreateRole creates a new role
 func (m *Manager) CreateRole(ctx context.Context, in *idamV1.CreateRoleRequest) (*idamV1.CreateRoleResponse, error) {
-	return nil, nil
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	if err := m.idam.CreateRole(in.GetRoleName()); err != nil {
+		return nil, err
+	}
+
+	log.WithURN(auth.URN).Infof("created role %s", in.GetRoleName())
+
+	return &idamV1.CreateRoleResponse{RoleName: in.GetRoleName()}, nil
 }
 
 // ListRoles returns all roles matching the lookup filter
 func (m *Manager) ListRoles(ctx context.Context, in *idamV1.RoleLookupRequest) (*idamV1.RoleLookupResponse, error) {
-	return nil, nil
+	auth, ok := policy.TokenFromContext(ctx)
+	if ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	roles := m.idam.GetRoles()
+
+	return &idamV1.RoleLookupResponse{
+		RoleNames: roles,
+	}, nil
 }
 
 // DeleteRole deletes a role
 func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) (*homebotApi.Empty, error) {
+	auth, ok := policy.TokenFromContext(ctx)
+	if ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	if err := m.idam.DeleteRole(in.GetRoleName()); err != nil {
+		return nil, err
+	}
+
+	identities := m.idam.IdentitiesByRole(in.GetRoleName())
+
+	for _, i := range identities {
+		var roles []urn.URN
+
+		for _, r := range i.Roles {
+			if r.String() != in.GetRoleName() {
+				roles = append(roles, r)
+			}
+		}
+
+		i.Roles = roles
+
+		if err := m.idam.Update(i.URN(), i); err != nil {
+			log.WithURN(auth.URN).Warnf("failed to remove role %s from identity: %s", in.GetRoleName(), i.URN().String())
+		}
+	}
+
+	log.WithURN(auth.URN).Infof("deleted role: %s", in.GetRoleName())
 	return &homebotApi.Empty{}, nil
 }
 
