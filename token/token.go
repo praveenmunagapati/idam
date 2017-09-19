@@ -120,6 +120,10 @@ func (t *Token) OwnsURN(r urn.URN) bool {
 
 // Valid checks if the token is still valid
 func (t *Token) Valid() error {
+	if t == nil {
+		return ErrInvalidToken
+	}
+
 	if !t.Expire.After(time.Now().UTC()) {
 		return ErrTokenExpired
 	}

@@ -181,7 +181,7 @@ func (p *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, 
 		ctx:          ctx,
 	}
 
-	return handler(wrappedStream, stream)
+	return handler(srv, wrappedStream)
 }
 
 func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
