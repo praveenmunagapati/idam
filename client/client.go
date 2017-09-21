@@ -60,10 +60,10 @@ type AdminClient interface {
 	DeleteRole(ctx context.Context, role string) error
 
 	// AssignRole assings a role to an identity
-	AssignRole(ctx context.Context, identity string, roles ...string) error
+	AssignRole(ctx context.Context, identity string, roles string) error
 
 	// UnassignRole removes a role from an identity
-	UnassignRole(ctx context.Context, identity string, roles ...string) error
+	UnassignRole(ctx context.Context, identity string, roles string) error
 
 	// Conn returns the underlying gRPC client connection
 	Conn() *grpc.ClientConn
@@ -313,7 +313,7 @@ func (cli *adminClient) ListRoles(ctx context.Context) ([]string, error) {
 }
 
 // AssignRole assigns one or more roles to an idenity
-func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles ...string) error {
+func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles string) error {
 	client := idamV1.NewAdminClient(cli.conn)
 
 	if _, err := client.AssignRole(ctx, &idamV1.AssignRoleRequest{
@@ -327,7 +327,7 @@ func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles .
 }
 
 // UnassignRole removes one ore more roles from an identity
-func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles ...string) error {
+func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles string) error {
 	client := idamV1.NewAdminClient(cli.conn)
 
 	if _, err := client.UnassignRole(ctx, &idamV1.UnassignRoleRequest{

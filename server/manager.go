@@ -242,15 +242,12 @@ func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) 
 
 	var rolesToAssign []string
 
-L:
-	for _, r := range in.GetRoleName() {
-		for _, n := range i.Roles {
-			if n == r {
-				continue L
-			}
+	for _, n := range i.Roles {
+		if n == in.GetRoleName() {
+			return &idamV1.AssignRoleResponse{
+				Identity: i.ToProtobuf(),
+			}, nil
 		}
-
-		rolesToAssign = append(rolesToAssign, r)
 	}
 
 	for _, r := range rolesToAssign {
@@ -281,10 +278,8 @@ func (m *Manager) UnassignRole(ctx context.Context, in *idamV1.UnassignRoleReque
 	var newRoles []string
 L:
 	for _, r := range i.Roles {
-		for _, remove := range in.GetRoleName() {
-			if r == remove {
-				continue L
-			}
+		if r == in.GetRoleName() {
+			continue L
 		}
 
 		newRoles = append(newRoles, r)
