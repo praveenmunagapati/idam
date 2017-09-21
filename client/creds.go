@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 type CredentialsFunc func() (username, password, otp string, err error)
 
 // OnAuthenticatedFunc is invoked by IdamCredentials when a new token has been acquired
-type OnAuthenticatedFunc(t *token.Token)
+type OnAuthenticatedFunc func(t *token.Token)
 
 // IdamCredentials are grpc.PerRPCCredentials that automatically renew the authentication
 // token

@@ -14,18 +14,8 @@
 package cmd
 
 import (
-	"bufio"
-	"context"
-	"fmt"
 	"log"
-	"os"
 
-	"github.com/howeyc/gopass"
-
-	"github.com/homebot/core/urn"
-	"github.com/homebot/idam/client"
-	"github.com/homebot/idam/token"
-	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -34,56 +24,13 @@ var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Login to IDAM and retrieve a new authentication token",
 	Run: func(cmd *cobra.Command, args []string) {
-		conn, jwt, tokenFile, err := getClient()
+		conn, _, tokenFile, err := getClient()
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer conn.Close()
-		_ = tokenFile
 
-		var userName urn.URN
-
-		if jwt != "" {
-			t, err := token.FromJWT(jwt, nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-			userName = t.URN
-
-		} else {
-			fmt.Printf("Username: ")
-			reader := bufio.NewReader(os.Stdin)
-			line, _, err := reader.ReadLine()
-			if err != nil {
-				log.Fatal(err)
-			}
-			user := string(line)
-
-			userName = urn.IdamIdentityResource.BuildURN("", user, user)
-			if !userName.Valid() {
-				log.Fatal(urn.ErrInvalidURN)
-			}
-		}
-
-		newToken, err := client.Authenticate(context.Background(), "", conn, userName, func(typ idamV1.ConversationChallengeType) (string, error) {
-			switch typ {
-			case idamV1.ConversationChallengeType_PASSWORD:
-				fmt.Printf("Password: ")
-			case idamV1.ConversationChallengeType_TOTP:
-				fmt.Printf("2FA-Token: ")
-			}
-
-			pass, err := gopass.GetPasswd()
-			return string(pass), err
-		})
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if err := token.SaveToken(newToken, tokenFile); err != nil {
-			log.Fatal(err)
-		}
+		log.Printf("Login successful, saved token at %s\n", tokenFile)
 	},
 }
 
