@@ -14,6 +14,9 @@ import (
 // CredentialsFunc returns the username, password and optionally otp token
 type CredentialsFunc func() (username, password, otp string, err error)
 
+// OnAuthenticatedFunc is invoked by IdamCredentials when a new token has been acquired
+type OnAuthenticatedFunc(t *token.Token)
+
 // IdamCredentials are grpc.PerRPCCredentials that automatically renew the authentication
 // token
 type IdamCredentials struct {
@@ -25,6 +28,8 @@ type IdamCredentials struct {
 	creds CredentialsFunc
 
 	t *token.Token
+
+	onAuthenticated OnAuthenticatedFunc
 }
 
 func NewIdamCredentials(endpoint string, t string, fn CredentialsFunc, opts ...grpc.DialOption) (*IdamCredentials, error) {
@@ -47,6 +52,18 @@ func NewIdamCredentials(endpoint string, t string, fn CredentialsFunc, opts ...g
 		return nil, err
 	}
 	return creds, nil
+}
+
+func (cred *IdamCredentials) OnAuthenticated(fn OnAuthenticatedFunc) error {
+	cred.rw.Lock()
+	defer cred.rw.Unlock()
+
+	if cred.onAuthenticated != nil {
+		return errors.New("OnAuthenticatedFunc already set")
+	}
+
+	cred.onAuthenticated = fn
+	return nil
 }
 
 // RequireTransportSecurity implements the grpc.PerRPCCredentials interface
@@ -108,6 +125,10 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) (*token.Token, er
 		}
 
 		cred.t = t
+
+		if cred.onAuthenticated != nil {
+			cred.onAuthenticated(t)
+		}
 	}
 
 	if cred.t != nil && cred.t.Expire.After(time.Now().Add(time.Minute*5)) {
@@ -131,6 +152,10 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) (*token.Token, er
 		t, err := token.FromJWT(res.GetToken(), nil)
 		if err != nil {
 			return nil, err
+		}
+
+		if cred.onAuthenticated != nil {
+			cred.onAuthenticated(t)
 		}
 
 		cred.t = t
