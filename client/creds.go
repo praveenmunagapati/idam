@@ -113,8 +113,8 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) (*token.Token, er
 			Principal: &idamV1.LoginRequest_Urn{
 				Urn: user,
 			},
-			Password:      []byte(pass),
-			OneTimeSecret: []byte(otp),
+			Password:      pass,
+			OneTimeSecret: otp,
 		})
 		if err != nil {
 			return nil, err
