@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/homebot/idam/token"
@@ -16,6 +17,8 @@ type CredentialsFunc func() (username, password, otp string, err error)
 // IdamCredentials are grpc.PerRPCCredentials that automatically renew the authentication
 // token
 type IdamCredentials struct {
+	rw sync.RWMutex
+
 	endpoints []string
 	dialOpts  []grpc.DialOption
 
@@ -24,14 +27,23 @@ type IdamCredentials struct {
 	t *token.Token
 }
 
-func NewIdamCredentials(endpoint string, token string, fn CredentialsFunc, opts ...grpc.DialOption) (*IdamCredentials, error) {
+func NewIdamCredentials(endpoint string, t string, fn CredentialsFunc, opts ...grpc.DialOption) (*IdamCredentials, error) {
 	creds := &IdamCredentials{
 		endpoints: []string{endpoint},
 		dialOpts:  opts,
 		creds:     fn,
 	}
 
-	if err := creds.authenticate(context.Background()); err != nil {
+	if t != "" {
+		parsed, err := token.FromJWT(t, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		creds.t = parsed
+	}
+
+	if _, err := creds.authenticate(context.Background()); err != nil {
 		return nil, err
 	}
 	return creds, nil
@@ -45,25 +57,36 @@ func (cred *IdamCredentials) RequireTransportSecurity() bool {
 // GetRequestMetadata adds authentication tokens for the new request and renews the current token if
 // required. It implements the grpc.PerRPCCredentials interface
 func (cred *IdamCredentials) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
-	if err := cred.authenticate(ctx); err != nil {
+	t, err := cred.authenticate(ctx)
+	if err != nil {
 		return nil, err
 	}
 
 	return map[string]string{
-		"authorization": cred.t.JWT,
+		"authorization": t.JWT,
 	}, nil
 }
 
-func (cred *IdamCredentials) authenticate(ctx context.Context) error {
+func (cred *IdamCredentials) Token() *token.Token {
+	cred.rw.RLock()
+	defer cred.rw.RUnlock()
+
+	return cred.t
+}
+
+func (cred *IdamCredentials) authenticate(ctx context.Context) (*token.Token, error) {
+	cred.rw.Lock()
+	defer cred.rw.Unlock()
+
 	if cred.t == nil || cred.t.Valid() != nil {
 		user, pass, otp, err := cred.creds()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		conn, err := grpc.Dial(cred.endpoints[0], cred.dialOpts...)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer conn.Close()
 
@@ -76,12 +99,12 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) error {
 			OneTimeSecret: []byte(otp),
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		t, err := token.FromJWT(res.GetToken(), nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		cred.t = t
@@ -90,7 +113,7 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) error {
 	if cred.t != nil && cred.t.Expire.After(time.Now().Add(time.Minute*5)) {
 		conn, err := grpc.Dial(cred.endpoints[0], cred.dialOpts...)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer conn.Close()
 
@@ -102,16 +125,16 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) error {
 		cli := idamV1.NewAuthenticatorClient(conn)
 		res, err := cli.Renew(ctx, &idamV1.RenewTokenRequest{})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		t, err := token.FromJWT(res.GetToken(), nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		cred.t = t
 	}
 
-	return nil
+	return cred.t, nil
 }
