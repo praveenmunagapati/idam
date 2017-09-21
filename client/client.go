@@ -28,6 +28,9 @@ type Client interface {
 
 	// Conn returns the underlying grpc client connection
 	Conn() *grpc.ClientConn
+
+	// Creds returns the idam credentials used
+	Creds() *IdamCredentials
 }
 
 // AdminClient is an IDAM administration client
@@ -58,10 +61,17 @@ type AdminClient interface {
 
 	// UnassignRole removes a role from an identity
 	UnassignRole(ctx context.Context, identity string, roles ...string) error
+
+	// Conn returns the underlying gRPC client connection
+	Conn() *grpc.ClientConn
+
+	// Creds returns the IDAM credentials used
+	Creds() *IdamCredentials
 }
 
 type client struct {
-	conn *grpc.ClientConn
+	conn  *grpc.ClientConn
+	creds *IdamCredentials
 }
 
 // NewClient creates a new IDAM client for the given endpoint and credential functions
@@ -84,7 +94,8 @@ func NewAuthenticatedClient(endpoint, token string, cred CredentialsFunc, opts .
 	}
 
 	return &client{
-		conn: conn,
+		conn:  conn,
+		creds: rpcCred,
 	}, nil
 }
 
@@ -154,12 +165,19 @@ func (cli *client) Change2FA(ctx context.Context, enabled bool, currentOTP strin
 	return res.GetSecret(), nil
 }
 
+// Conn returns the underlying gRPC connection
 func (cli *client) Conn() *grpc.ClientConn {
 	return cli.conn
 }
 
+// Creds returns the IDAM credentials of the connection
+func (cli *client) Creds() *IdamCredentials {
+	return cli.creds
+}
+
 type adminClient struct {
-	conn *grpc.ClientConn
+	conn  *grpc.ClientConn
+	creds *IdamCredentials
 }
 
 // NewAuthenticatedAdminClient returns a new authenticated admin client using `token`
@@ -171,7 +189,8 @@ func NewAuthenticatedAdminClient(endpoint, token string, cred CredentialsFunc, o
 	}
 
 	return &adminClient{
-		conn: cli.Conn(),
+		conn:  cli.Conn(),
+		creds: cli.Creds(),
 	}, nil
 }
 
@@ -243,6 +262,7 @@ func (cli *adminClient) LookupIdentities(ctx context.Context) ([]idam.Identity, 
 	return identities, nil
 }
 
+// CreateRole creates a new role at the identitiy server
 func (cli *adminClient) CreateRole(ctx context.Context, role string) error {
 	client := idamV1.NewAdminClient(cli.conn)
 
@@ -255,6 +275,8 @@ func (cli *adminClient) CreateRole(ctx context.Context, role string) error {
 	return nil
 }
 
+// DeleteRole deletes a role from the IDAM server. It will also unassign the role
+// from all identities
 func (cli *adminClient) DeleteRole(ctx context.Context, role string) error {
 	client := idamV1.NewAdminClient(cli.conn)
 
@@ -267,6 +289,7 @@ func (cli *adminClient) DeleteRole(ctx context.Context, role string) error {
 	return nil
 }
 
+// ListRoles returns a list of roles registered at the IDAM server
 func (cli *adminClient) ListRoles(ctx context.Context) ([]string, error) {
 	client := idamV1.NewAdminClient(cli.conn)
 
@@ -278,6 +301,7 @@ func (cli *adminClient) ListRoles(ctx context.Context) ([]string, error) {
 	return res.GetRoleNames(), nil
 }
 
+// AssignRole assigns one or more roles to an idenity
 func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles ...string) error {
 	client := idamV1.NewAdminClient(cli.conn)
 
@@ -291,6 +315,7 @@ func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles .
 	return nil
 }
 
+// UnassignRole removes one ore more roles from an identity
 func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles ...string) error {
 	client := idamV1.NewAdminClient(cli.conn)
 
@@ -302,4 +327,13 @@ func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles
 	}
 
 	return nil
+}
+
+// Conn returns the underlying gRPC client connection
+func (cli *adminClient) Conn() *grpc.ClientConn {
+	return cli.conn
+}
+
+func (cli *adminClient) Creds() *IdamCredentials {
+	return cli.creds
 }
