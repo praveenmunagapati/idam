@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/homebot/core/urn"
@@ -146,7 +147,7 @@ func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityR
 func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest) (*idamV1.LookupResponse, error) {
 	auth, ok := policy.TokenFromContext(ctx)
 	if !ok || auth.Valid() != nil {
-		return nil, idam.ErrNotAuthenticated
+		return nil, fmt.Errorf("invalid token: %s", auth.Valid())
 	}
 
 	identities := m.idam.Identities()
@@ -229,12 +230,75 @@ func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) 
 
 // AssignRole assigns a role to an identity
 func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) (*idamV1.AssignRoleResponse, error) {
-	return nil, nil
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	i, _, err := m.idam.Get(urn.URN(in.GetIdentity()))
+	if err != nil {
+		return nil, err
+	}
+
+	var rolesToAssign []string
+
+L:
+	for _, r := range in.GetRoleName() {
+		for _, n := range i.Roles {
+			if n.String() == r {
+				continue L
+			}
+		}
+
+		rolesToAssign = append(rolesToAssign, r)
+	}
+
+	for _, r := range rolesToAssign {
+		i.Roles = append(i.Roles, urn.URN(r))
+	}
+
+	if err := m.idam.Update(i.URN(), *i); err != nil {
+		return nil, err
+	}
+
+	return &idamV1.AssignRoleResponse{
+		Identity: i.ToProtobuf(),
+	}, nil
 }
 
 // UnassignRole removes a role from an identity
 func (m *Manager) UnassignRole(ctx context.Context, in *idamV1.UnassignRoleRequest) (*idamV1.UnassignRoleResponse, error) {
-	return nil, nil
+	auth, ok := policy.TokenFromContext(ctx)
+	if !ok || auth.Valid() != nil {
+		return nil, idam.ErrNotAuthenticated
+	}
+
+	i, _, err := m.idam.Get(urn.URN(in.GetIdentity()))
+	if err != nil {
+		return nil, err
+	}
+
+	var newRoles []urn.URN
+L:
+	for _, r := range i.Roles {
+		for _, remove := range in.GetRoleName() {
+			if r.String() == remove {
+				continue L
+			}
+		}
+
+		newRoles = append(newRoles, urn.URN(r))
+	}
+	i.Roles = newRoles
+
+	if err := m.idam.Update(i.URN(), *i); err != nil {
+		return nil, err
+	}
+
+	return &idamV1.UnassignRoleResponse{
+		Identity: i.ToProtobuf(),
+	}, nil
 }
 
 var _ idamV1.AdminServer = &Manager{}
+var _ policy.JWTKeyVerifier = &Manager{}

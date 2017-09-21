@@ -13,7 +13,6 @@ import (
 	proto "github.com/golang/protobuf/proto"
 	protobuf "github.com/golang/protobuf/protoc-gen-go/descriptor"
 	"github.com/homebot/core/urn"
-	"github.com/homebot/idam"
 	"github.com/homebot/idam/token"
 	homebot "github.com/homebot/protobuf/pkg/api"
 	idamPolicy "github.com/homebot/protobuf/pkg/api/idam/policy"
@@ -150,7 +149,7 @@ L:
 // UnaryInterceptor inspects unary RPC calls and enforces HomeBot API policies attached
 // to the service definition
 func (p *Enforcer) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	ctx, err := p.enforce(ctx, req, info.Server, false, info.FullMethod)
+	ctx, err := p.enforce(ctx, info.Server, req, false, info.FullMethod)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +191,7 @@ func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}
 
 	verifier, ok := srv.(JWTKeyVerifier)
 	if !ok {
-		return nil, errors.New("server configuration error: cannot verify key")
+		return nil, fmt.Errorf("server configuration error: cannot verify key: %T", srv)
 	}
 
 	jwt, tokenErr := token.FromMetadata(ctx, verifier.VerificationKey)
@@ -205,7 +204,7 @@ func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}
 		}
 
 		if authRequired && (tokenErr != nil || jwt == nil) {
-			return ctx, idam.ErrNotAuthenticated
+			return ctx, fmt.Errorf("authentication required: %s", tokenErr) //idam.ErrNotAuthenticated
 		}
 
 		if !clientStreaming && p.OwnerOnly != "" && req != nil {
@@ -217,7 +216,7 @@ func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}
 					val := reflect.ValueOf(req).Elem().FieldByName(prop.Name)
 
 					if !jwt.OwnsURN(urn.URN(val.String())) {
-						return ctx, idam.ErrNotAuthorized
+						return ctx, fmt.Errorf("ownerOnly") //idam.ErrNotAuthorized
 					}
 
 					break L
@@ -227,7 +226,7 @@ func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}
 
 		for _, r := range p.GetRoles() {
 			if !jwt.HasGroup(urn.URN(r)) {
-				return ctx, idam.ErrNotAuthorized
+				return ctx, fmt.Errorf("missing group: %q, %+v", r, jwt.Groups) //idam.ErrNotAuthorized
 			}
 		}
 	}
