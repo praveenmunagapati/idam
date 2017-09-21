@@ -14,24 +14,15 @@
 package cmd
 
 import (
-	"log"
-
 	"github.com/spf13/cobra"
 )
 
-// loginCmd represents the login command
-var loginCmd = &cobra.Command{
-	Use:   "login",
-	Short: "Login to IDAM and retrieve a new authentication token",
-	Run: func(cmd *cobra.Command, args []string) {
-		conn, err := newClient()
-		if err != nil {
-			log.Fatal(err)
-		}
-		conn.Close()
-	},
+// addCmd represents the add command
+var addCmd = &cobra.Command{
+	Use:   "add",
+	Short: "A brief description of your command",
 }
 
 func init() {
-	RootCmd.AddCommand(loginCmd)
+	RootCmd.AddCommand(addCmd)
 }

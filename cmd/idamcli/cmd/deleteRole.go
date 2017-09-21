@@ -14,24 +14,26 @@
 package cmd
 
 import (
-	"log"
+	"fmt"
 
 	"github.com/spf13/cobra"
 )
 
-// loginCmd represents the login command
-var loginCmd = &cobra.Command{
-	Use:   "login",
-	Short: "Login to IDAM and retrieve a new authentication token",
+// deleteRoleCmd represents the deleteRole command
+var deleteRoleCmd = &cobra.Command{
+	Use:   "deleteRole",
+	Short: "A brief description of your command",
+	Long: `A longer description that spans multiple lines and likely contains examples
+and usage of using your command. For example:
+
+Cobra is a CLI library for Go that empowers applications.
+This application is a tool to generate the needed files
+to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		conn, err := newClient()
-		if err != nil {
-			log.Fatal(err)
-		}
-		conn.Close()
+		fmt.Println("deleteRole called")
 	},
 }
 
 func init() {
-	RootCmd.AddCommand(loginCmd)
+	deleteCmd.AddCommand(deleteRoleCmd)
 }
