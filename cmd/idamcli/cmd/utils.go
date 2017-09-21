@@ -1,9 +1,14 @@
 package cmd
 
 import (
+	"github.com/homebot/idam/client"
 	"github.com/homebot/idam/token"
 	"google.golang.org/grpc"
 )
+
+func conversation() (username, password, otp string, err error) {
+	return "", "", "", nil
+}
 
 func getClient() (*grpc.ClientConn, string, string, error) {
 	tokenString := ""
@@ -17,8 +22,14 @@ func getClient() (*grpc.ClientConn, string, string, error) {
 	if err == nil {
 		tokenString = t
 		tokenFile = path
-		opts = append(opts, grpc.WithPerRPCCredentials(token.NewRPCCredentials(t)))
 	}
+
+	creds, err := client.NewIdamCredentials(idamServer, t, conversation, opts...)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	opts = append(opts, grpc.WithPerRPCCredentials(creds))
 
 	conn, err := grpc.Dial(idamServer, opts...)
 	if err != nil {
