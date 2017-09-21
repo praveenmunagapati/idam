@@ -31,6 +31,9 @@ type Client interface {
 
 	// Creds returns the idam credentials used
 	Creds() *IdamCredentials
+
+	// Close closes the underlying gRPC connection
+	Close() error
 }
 
 // AdminClient is an IDAM administration client
@@ -67,6 +70,9 @@ type AdminClient interface {
 
 	// Creds returns the IDAM credentials used
 	Creds() *IdamCredentials
+
+	// Close closes the underlying gRPC connection
+	Close() error
 }
 
 type client struct {
@@ -173,6 +179,11 @@ func (cli *client) Conn() *grpc.ClientConn {
 // Creds returns the IDAM credentials of the connection
 func (cli *client) Creds() *IdamCredentials {
 	return cli.creds
+}
+
+// Close closes the gRPC connection
+func (cli *client) Close() error {
+	return cli.conn.Close()
 }
 
 type adminClient struct {
@@ -334,6 +345,12 @@ func (cli *adminClient) Conn() *grpc.ClientConn {
 	return cli.conn
 }
 
+// Creds returns the IDAM credentials used by the connection
 func (cli *adminClient) Creds() *IdamCredentials {
 	return cli.creds
+}
+
+// Close closes the gRPC connection
+func (cli *adminClient) Close() error {
+	return cli.conn.Close()
 }
