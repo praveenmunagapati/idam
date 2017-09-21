@@ -34,10 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(policyEnforcer.UnaryInterceptor),
-		grpc.StreamInterceptor(policyEnforcer.StreamInterceptor),
-	)
+	grpcServer := grpc.NewServer(policyEnforcer.ServerOptions()...)
 
 	idamV1.RegisterAdminServer(grpcServer, srv)
 	idamV1.RegisterProfileServer(grpcServer, srv)

@@ -69,6 +69,13 @@ type Enforcer struct {
 	services map[string]*protobuf.ServiceDescriptorProto
 }
 
+func (e *Enforcer) ServerOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.StreamInterceptor(e.StreamInterceptor),
+		grpc.UnaryInterceptor(e.UnaryInterceptor),
+	}
+}
+
 // NewEnforcer returns a new policy enforcer using the given protocol buffer files
 // and `keyFn` for verifying JSON Web Tokens
 func NewEnforcer(files []string) (*Enforcer, error) {
