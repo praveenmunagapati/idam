@@ -44,26 +44,14 @@ func conversation() (username, password, otp string, err error) {
 	return userName.String(), string(pass), string(otpb), nil
 }
 
-func getClient() (*grpc.ClientConn, string, string, error) {
-	tokenString := ""
-	tokenFile := ""
-
-	opts := []grpc.DialOption{
-		grpc.WithInsecure(),
-	}
-
-	t, path, err := token.LoadToken([]string{jwtFile})
-	if err == nil {
-		tokenString = t
-		tokenFile = path
-	}
-
-	creds, err := client.NewIdamCredentials(idamServer, t, conversation, opts...)
+func newClient() (client.Client, error) {
+	t, path, _ := token.LoadToken([]string{jwtFile})
+	cli, err := client.NewAuthenticatedClient(idamServer, t, conversation, grpc.WithInsecure())
 	if err != nil {
-		return nil, "", "", err
+		return nil, err
 	}
 
-	creds.OnAuthenticated(func(t *token.Token) {
+	cli.Creds().OnAuthenticated(func(t *token.Token) {
 		if path == "" {
 			path = token.DefaultTokenFile
 		}
@@ -73,24 +61,45 @@ func getClient() (*grpc.ClientConn, string, string, error) {
 		}
 	})
 
-	if creds.Token() != nil && creds.Token().JWT != t {
+	if cli.Creds().Token() != nil && cli.Creds().Token().JWT != t {
 		if path == "" {
 			path = token.DefaultTokenFile
 		}
 
-		if err := token.SaveToken(creds.Token().JWT, path); err != nil {
+		if err := token.SaveToken(cli.Creds().Token().JWT, path); err != nil {
 			log.Printf("failed to save token: %s\n", err)
 		}
-
-		tokenString = creds.Token().JWT
 	}
 
-	opts = append(opts, grpc.WithPerRPCCredentials(creds))
+	return cli, nil
+}
 
-	conn, err := grpc.Dial(idamServer, opts...)
+func newAdminClient() (client.AdminClient, error) {
+	t, path, _ := token.LoadToken([]string{jwtFile})
+	cli, err := client.NewAuthenticatedAdminClient(idamServer, t, conversation, grpc.WithInsecure())
 	if err != nil {
-		return nil, "", "", err
+		return nil, err
 	}
 
-	return conn, tokenString, tokenFile, nil
+	cli.Creds().OnAuthenticated(func(t *token.Token) {
+		if path == "" {
+			path = token.DefaultTokenFile
+		}
+
+		if err := token.SaveToken(t.JWT, path); err != nil {
+			log.Printf("failed to save token: %s\n", err)
+		}
+	})
+
+	if cli.Creds().Token() != nil && cli.Creds().Token().JWT != t {
+		if path == "" {
+			path = token.DefaultTokenFile
+		}
+
+		if err := token.SaveToken(cli.Creds().Token().JWT, path); err != nil {
+			log.Printf("failed to save token: %s\n", err)
+		}
+	}
+
+	return cli, nil
 }

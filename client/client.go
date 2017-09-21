@@ -262,11 +262,7 @@ func (cli *adminClient) LookupIdentities(ctx context.Context) ([]idam.Identity, 
 
 	for _, ri := range res.GetIdentities() {
 		i := idam.IdentityFromProto(ri)
-		if i.Valid() != nil {
-			// TODO(ppacher): skip but log
-			continue
-		}
-
+		// TODO(ppacher): re-add Valid() check
 		identities = append(identities, *i)
 	}
 

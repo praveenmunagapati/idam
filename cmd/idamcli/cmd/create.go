@@ -98,27 +98,21 @@ var createCmd = &cobra.Command{
 
 		password = string(p)
 
-		conn, _, _, err := getClient()
+		cli, err := newAdminClient()
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer conn.Close()
+		defer cli.Close()
 
-		cli := idamV1.NewAdminClient(conn)
-
-		res, err := cli.CreateIdentity(context.Background(), &idamV1.CreateIdentityRequest{
-			Identity:  i.ToProtobuf(),
-			Password:  password,
-			Enable2FA: create2FA,
-		})
+		res, err := cli.CreateIdentity(context.Background(), i, password, create2FA)
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		fmt.Println("User create successfully")
 
-		if create2FA && res.GetTotpSecret() != "" {
-			fmt.Printf("OTP-Token: %s\n", res.GetTotpSecret())
+		if create2FA && res != "" {
+			fmt.Printf("OTP-Token: %s\n", res)
 		}
 	},
 }

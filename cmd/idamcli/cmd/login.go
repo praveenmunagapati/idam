@@ -24,13 +24,11 @@ var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Login to IDAM and retrieve a new authentication token",
 	Run: func(cmd *cobra.Command, args []string) {
-		conn, _, tokenFile, err := getClient()
+		conn, err := newClient()
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer conn.Close()
-
-		log.Printf("Login successful, saved token at %s\n", tokenFile)
+		conn.Close()
 	},
 }
 

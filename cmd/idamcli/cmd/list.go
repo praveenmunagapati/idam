@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/homebot/idam"
-	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -28,21 +26,18 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Show identities registered at IDAM",
 	Run: func(cmd *cobra.Command, args []string) {
-		conn, _, _, err := getClient()
+		cli, err := newAdminClient()
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer conn.Close()
+		defer cli.Close()
 
-		cli := idamV1.NewAdminClient(conn)
-
-		response, err := cli.LookupIdentities(context.Background(), &idamV1.LookupRequest{})
+		response, err := cli.LookupIdentities(context.Background())
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		for _, msg := range response.GetIdentities() {
-			i := idam.IdentityFromProto(msg)
+		for _, i := range response {
 			identityType := "User-Account"
 
 			if i.IsService() {
