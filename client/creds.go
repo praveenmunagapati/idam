@@ -110,9 +110,7 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) (*token.Token, er
 
 		cli := idamV1.NewAuthenticatorClient(conn)
 		res, err := cli.Login(ctx, &idamV1.LoginRequest{
-			Principal: &idamV1.LoginRequest_Urn{
-				Urn: user,
-			},
+			Urn:           user,
 			Password:      pass,
 			OneTimeSecret: otp,
 		})
