@@ -14,7 +14,7 @@ func TestValidToken(t *testing.T) {
 	key := "foobar"
 
 	sub := urn.URN("urn:namespace:service:accountId:resourceType:resource")
-	groups := []urn.URN{sub}
+	groups := []string{"role1"}
 	issuer := "authority"
 
 	token, err := New(sub, groups, issuer, time.Now(), "HS256", strings.NewReader(key))

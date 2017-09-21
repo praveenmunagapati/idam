@@ -20,7 +20,6 @@ import (
 
 	"github.com/howeyc/gopass"
 
-	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
@@ -63,20 +62,9 @@ var createCmd = &cobra.Command{
 			log.Fatal("--mail is required for --user")
 		}
 
-		var roles []urn.URN
-
-		for _, g := range createRoles {
-			u := urn.URN(g)
-			if !u.Valid() {
-				log.Fatalf("group %s is not valid", g)
-			}
-
-			roles = append(roles, u)
-		}
-
 		i := idam.Identity{
 			Name:  createName,
-			Roles: roles,
+			Roles: createRoles,
 		}
 
 		if createUser {

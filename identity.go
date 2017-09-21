@@ -47,7 +47,7 @@ type Identity struct {
 	Type idamV1.IdentityType
 
 	// Roles the identity belongs to
-	Roles []urn.URN
+	Roles []string
 
 	// Name of the identity
 	Name string
@@ -103,15 +103,10 @@ func (i *Identity) Valid() error {
 
 // ToProtobuf creates the protocol buffer representation of the identity
 func (i *Identity) ToProtobuf() *idamV1.Identity {
-	var group []string
-	for _, g := range i.Roles {
-		group = append(group, g.String())
-	}
-
 	identity := &idamV1.Identity{
 		Type:   i.Type,
 		Urn:    i.URN().String(),
-		Roles:  group,
+		Roles:  i.Roles,
 		Name:   i.Name,
 		Labels: i.Labels,
 	}
@@ -137,12 +132,6 @@ func IdentityFromProto(p *idamV1.Identity) *Identity {
 		return nil
 	}
 
-	var groups []urn.URN
-
-	for _, g := range p.GetRoles() {
-		groups = append(groups, urn.URN(g))
-	}
-
 	var userData *UserData
 	if p.GetType() == idamV1.IdentityType_USER && p.GetUser() != nil {
 		userData = &UserData{
@@ -155,7 +144,7 @@ func IdentityFromProto(p *idamV1.Identity) *Identity {
 
 	return &Identity{
 		Type:     p.GetType(),
-		Roles:    groups,
+		Roles:    p.GetRoles(),
 		Name:     p.GetName(),
 		Labels:   p.GetLabels(),
 		UserData: userData,

@@ -330,7 +330,7 @@ func (m *FileProvider) Update(u urn.URN, ident idam.Identity) error {
 		return errors.New("cannot change identity type")
 	}
 
-	original.Roles = make([]urn.URN, len(ident.Roles))
+	original.Roles = make([]string, len(ident.Roles))
 	for i, g := range ident.Roles {
 		original.Roles[i] = g
 	}
@@ -393,15 +393,6 @@ func (m *FileProvider) IdentitiesByRole(r string) []idam.Identity {
 	defer m.rw.RUnlock()
 
 	var identities []idam.Identity
-
-	contains := func(arr []urn.URN, needle string) bool {
-		for _, v := range arr {
-			if v.String() == needle {
-				return true
-			}
-		}
-		return false
-	}
 
 	for _, v := range m.identities {
 		if contains(v.Roles, r) {

@@ -155,7 +155,7 @@ func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest
 	var res []*idamV1.Identity
 
 	for _, i := range identities {
-		if auth.HasGroup(urn.IdamAdminGroup) || auth.OwnsURN(i.URN()) {
+		if auth.HasGroup("idam-admin") || auth.OwnsURN(i.URN()) {
 			res = append(res, i.ToProtobuf())
 		}
 	}
@@ -209,10 +209,10 @@ func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) 
 	identities := m.idam.IdentitiesByRole(in.GetRoleName())
 
 	for _, i := range identities {
-		var roles []urn.URN
+		var roles []string
 
 		for _, r := range i.Roles {
-			if r.String() != in.GetRoleName() {
+			if r != in.GetRoleName() {
 				roles = append(roles, r)
 			}
 		}
@@ -245,7 +245,7 @@ func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) 
 L:
 	for _, r := range in.GetRoleName() {
 		for _, n := range i.Roles {
-			if n.String() == r {
+			if n == r {
 				continue L
 			}
 		}
@@ -254,7 +254,7 @@ L:
 	}
 
 	for _, r := range rolesToAssign {
-		i.Roles = append(i.Roles, urn.URN(r))
+		i.Roles = append(i.Roles, r)
 	}
 
 	if err := m.idam.Update(i.URN(), *i); err != nil {
@@ -278,16 +278,16 @@ func (m *Manager) UnassignRole(ctx context.Context, in *idamV1.UnassignRoleReque
 		return nil, err
 	}
 
-	var newRoles []urn.URN
+	var newRoles []string
 L:
 	for _, r := range i.Roles {
 		for _, remove := range in.GetRoleName() {
-			if r.String() == remove {
+			if r == remove {
 				continue L
 			}
 		}
 
-		newRoles = append(newRoles, urn.URN(r))
+		newRoles = append(newRoles, r)
 	}
 	i.Roles = newRoles
 

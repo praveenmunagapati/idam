@@ -225,7 +225,7 @@ func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}
 		}
 
 		for _, r := range p.GetRoles() {
-			if !jwt.HasGroup(urn.URN(r)) {
+			if !jwt.HasGroup(r) {
 				return ctx, fmt.Errorf("missing group: %q, %+v", r, jwt.Groups) //idam.ErrNotAuthorized
 			}
 		}

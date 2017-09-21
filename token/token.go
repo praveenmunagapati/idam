@@ -78,7 +78,7 @@ type Token struct {
 	URN urn.URN
 
 	// Groups it the list of groups the identity belongs to
-	Groups []urn.URN
+	Groups []string
 
 	// Issuer is the issuer of the authentication token
 	Issuer string
@@ -99,9 +99,9 @@ func (t *Token) ForIdentity(i *idam.Identity) bool {
 }
 
 // HasGroup checks if the token has a given group
-func (t *Token) HasGroup(grp urn.URN) bool {
+func (t *Token) HasGroup(grp string) bool {
 	for _, g := range t.Groups {
-		if g.String() == grp.String() {
+		if g == grp {
 			return true
 		}
 	}
@@ -161,7 +161,7 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 		return nil, ErrInvalidToken
 	}
 
-	var groups []urn.URN
+	var groups []string
 	if _, ok := claim["groups"]; ok {
 		grps, ok := claim["groups"].([]interface{})
 		if ok {
@@ -170,12 +170,8 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 				if !ok {
 					return nil, ErrInvalidToken
 				}
-				gu := urn.URN(g)
-				if !gu.Valid() {
-					return nil, urn.ErrInvalidURN
-				}
 
-				groups = append(groups, gu)
+				groups = append(groups, g)
 			}
 		}
 	}
@@ -208,15 +204,10 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 }
 
 // New creates a new signed JWT token
-func New(sub urn.URN, groups []urn.URN, issuer string, expire time.Time, alg string, key io.Reader) (string, error) {
-	var grps []string
-	for _, g := range groups {
-		grps = append(grps, g.String())
-	}
-
+func New(sub urn.URN, groups []string, issuer string, expire time.Time, alg string, key io.Reader) (string, error) {
 	claim := jwt.MapClaims{
 		"sub":    sub.String(),
-		"groups": grps,
+		"groups": groups,
 		"exp":    expire.Unix(),
 		"iss":    issuer,
 		"iat":    time.Now().Unix(),
