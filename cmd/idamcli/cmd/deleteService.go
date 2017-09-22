@@ -14,23 +14,40 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"log"
+
+	"github.com/homebot/core/urn"
 
 	"github.com/spf13/cobra"
 )
 
 // deleteServiceCmd represents the deleteService command
 var deleteServiceCmd = &cobra.Command{
-	Use:   "deleteService",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "service",
+	Short: "Delete a service account",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("deleteService called")
+		if len(args) != 1 {
+			log.Fatal("invalid number of arguments")
+		}
+
+		serviceName := args[0]
+		if u := urn.URN(serviceName); !u.Valid() {
+			serviceName = urn.IdamIdentityResource.BuildURN("", serviceName, serviceName).String()
+		}
+
+		cli, err := newAdminClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
+
+		if err := cli.DeleteIdentity(context.Background(), serviceName); err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("Service %s deleted\n", serviceName)
 	},
 }
 

@@ -14,23 +14,35 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"log"
 
 	"github.com/spf13/cobra"
 )
 
 // deleteRoleCmd represents the deleteRole command
 var deleteRoleCmd = &cobra.Command{
-	Use:   "deleteRole",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "role",
+	Short: "Delete a role",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("deleteRole called")
+		if len(args) != 1 {
+			log.Fatal("invalid number of arguments")
+		}
+
+		roleName := args[0]
+
+		cli, err := newAdminClient()
+		if err != nil {
+			log.Fatal("failed to create client", err)
+		}
+		defer cli.Close()
+
+		if err := cli.DeleteRole(context.Background(), roleName); err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("Role %s deleted\n", roleName)
 	},
 }
 

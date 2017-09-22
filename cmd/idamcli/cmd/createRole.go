@@ -14,7 +14,8 @@
 package cmd
 
 import (
-	"fmt"
+	"context"
+	"log"
 
 	"github.com/spf13/cobra"
 )
@@ -22,15 +23,21 @@ import (
 // createRoleCmd represents the role command
 var createRoleCmd = &cobra.Command{
 	Use:   "role",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Create a new role",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("role called")
+		if len(args) != 1 {
+			log.Fatal("Missing role name")
+		}
+
+		cli, err := newAdminClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
+
+		if err := cli.CreateRole(context.Background(), args[0]); err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 

@@ -14,119 +14,15 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
-	"log"
-
-	"github.com/howeyc/gopass"
-
-	"github.com/homebot/idam"
-	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"github.com/spf13/cobra"
 )
 
-var (
-	createName           string
-	create2FA            bool
-	createRoles          []string
-	createUser           bool
-	createService        bool
-	createFirstName      string
-	createLastName       string
-	createPrimaryMail    string
-	createSecondaryMails []string
-)
-
-// createCmd represents the create command
-var createCmd = &cobra.Command{
+// addCmd represents the add command
+var addCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a new identity",
-	Run: func(cmd *cobra.Command, args []string) {
-		if createUser && createService {
-			log.Fatal("only --user or --service can be used")
-		}
-
-		if !createService && !createUser {
-			log.Fatal("one of --user or --service must be used")
-		}
-
-		if !createUser && (createFirstName != "" || createLastName != "" || createPrimaryMail != "" || len(createSecondaryMails) > 0) {
-			log.Fatal("--first-name, --last-name, --mail and --extra-mails can only be used with --user")
-		}
-
-		if createName == "" {
-			log.Fatal("--name is required")
-		}
-
-		if createUser && createPrimaryMail == "" {
-			log.Fatal("--mail is required for --user")
-		}
-
-		i := idam.Identity{
-			Name:  createName,
-			Roles: createRoles,
-		}
-
-		if createUser {
-			i.Type = idamV1.IdentityType_USER
-			i.UserData = &idam.UserData{
-				PrimaryMail:    createPrimaryMail,
-				SecondaryMails: createSecondaryMails,
-				FirstName:      createFirstName,
-				LastName:       createLastName,
-			}
-		} else {
-			i.Type = idamV1.IdentityType_SERVICE
-		}
-
-		password := ""
-
-		fmt.Printf("Password: ")
-		p, err := gopass.GetPasswd()
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("Confirm: ")
-		c, err := gopass.GetPasswd()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if string(p) != string(c) {
-			log.Fatal("password do not match")
-		}
-
-		password = string(p)
-
-		cli, err := newAdminClient()
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer cli.Close()
-
-		res, err := cli.CreateIdentity(context.Background(), i, password, create2FA)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Println("User create successfully")
-
-		if create2FA && res != "" {
-			fmt.Printf("OTP-Token: %s\n", res)
-		}
-	},
+	Short: "Create a new role, user or service account",
 }
 
 func init() {
-	RootCmd.AddCommand(createCmd)
-
-	createCmd.Flags().StringVar(&createName, "name", "", "Name for the new account")
-	createCmd.Flags().BoolVar(&create2FA, "otp", false, "Enable 2-factor-authentication")
-	createCmd.Flags().StringSliceVar(&createRoles, "roles", []string{}, "A list of roles the identity belongs to")
-	createCmd.Flags().BoolVar(&createUser, "user", false, "Create a new user account")
-	createCmd.Flags().BoolVar(&createService, "service", false, "Create a new service account")
-	createCmd.Flags().StringVar(&createFirstName, "first-name", "", "First name of the user")
-	createCmd.Flags().StringVar(&createLastName, "last-name", "", "Last name of the user")
-	createCmd.Flags().StringVar(&createPrimaryMail, "mail", "", "Primary mail address for the user")
-	createCmd.Flags().StringSliceVar(&createSecondaryMails, "extra-mails", []string{}, "Additional mail address for the user account")
+	RootCmd.AddCommand(addCmd)
 }

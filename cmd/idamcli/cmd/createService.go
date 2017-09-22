@@ -14,26 +14,84 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"log"
+
+	"github.com/homebot/core/urn"
+	"github.com/homebot/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
+	"github.com/howeyc/gopass"
 
 	"github.com/spf13/cobra"
+)
+
+var (
+	csPassword string
+	csRoles    []string
+	csOTP      bool
 )
 
 // createServiceCmd represents the service command
 var createServiceCmd = &cobra.Command{
 	Use:   "service",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Create a new service account",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("service called")
+		if len(args) != 1 {
+			log.Fatal("invalid number of arguments")
+		}
+
+		serviceName := args[0]
+		if u := urn.URN(serviceName); !u.Valid() {
+			serviceName = urn.IdamIdentityResource.BuildURN("", serviceName, serviceName).String()
+		}
+
+		if csPassword == "" {
+			fmt.Printf("Password: ")
+			p1, err := gopass.GetPasswd()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			p2, err := gopass.GetPasswd()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if string(p1) != string(p2) {
+				log.Fatal("passwords do not match")
+			}
+
+			csPassword = string(p1)
+		}
+
+		identity := idam.Identity{
+			Type:  idamV1.IdentityType_SERVICE,
+			Name:  urn.URN(serviceName).AccountID(),
+			Roles: csRoles,
+		}
+
+		cli, err := newAdminClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
+
+		secret, err := cli.CreateIdentity(context.Background(), identity, csPassword, csOTP)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println("Service account created")
+
+		if csOTP {
+			fmt.Printf("\nOne-Time-Secret: %s\n", secret)
+		}
 	},
 }
 
 func init() {
 	addCmd.AddCommand(createServiceCmd)
+	createServiceCmd.Flags().StringVarP(&csPassword, "password", "p", "", "Password for the service account")
+	createServiceCmd.Flags().BoolVar(&csOTP, "with-2fa", false, "Enable two-factor-authentication for the service account")
 }

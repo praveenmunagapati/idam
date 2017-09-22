@@ -55,6 +55,9 @@ type IdentityManager interface {
 	// GetRoles returns a list of roles
 	GetRoles() []string
 
+	// HasRole checks whether there's a role with the given name
+	HasRole(r string) bool
+
 	// IdentitiesByRole returns a list of identities that have a given role assigned
 	IdentitiesByRole(string) []idam.Identity
 

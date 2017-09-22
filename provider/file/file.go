@@ -439,3 +439,14 @@ func (m *FileProvider) GetRoles() []string {
 
 	return roles
 }
+
+// HasRole checks if the provider has a given role
+func (m *FileProvider) HasRole(r string) bool {
+	for _, role := range m.GetRoles() {
+		if r == role {
+			return true
+		}
+	}
+
+	return false
+}

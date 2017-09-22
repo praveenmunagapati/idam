@@ -89,6 +89,16 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 		return nil, err
 	}
 
+	for _, r := range identity.Roles {
+		if !m.idam.HasRole(r) {
+			return nil, fmt.Errorf("unknown role: %s", r)
+		}
+	}
+
+	if _, _, err := m.idam.Get(identity.URN()); err == nil {
+		return nil, errors.New("identity name already in use")
+	}
+
 	otpSecret, err := m.idam.Create(*identity, in.GetPassword(), in.GetEnable2FA())
 	if err != nil {
 		return nil, err
@@ -140,7 +150,7 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityR
 
 // UpdateIdentity updates a given identity
 func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityRequest) (*idamV1.UpdateIdentityResponse, error) {
-	return nil, nil
+	return nil, errors.New("not yet implemented")
 }
 
 // LookupIdentities searches for identities matching the lookup request
@@ -172,6 +182,10 @@ func (m *Manager) CreateRole(ctx context.Context, in *idamV1.CreateRoleRequest) 
 		return nil, idam.ErrNotAuthenticated
 	}
 
+	if m.idam.HasRole(in.GetRoleName()) {
+		return nil, errors.New("role already exists")
+	}
+
 	if err := m.idam.CreateRole(in.GetRoleName()); err != nil {
 		return nil, err
 	}
@@ -188,7 +202,23 @@ func (m *Manager) ListRoles(ctx context.Context, in *idamV1.RoleLookupRequest) (
 		return nil, idam.ErrNotAuthenticated
 	}
 
-	roles := m.idam.GetRoles()
+	var roles []string
+
+	if in.GetIdentity() != "" {
+		u := urn.URN(in.GetIdentity())
+		if !u.Valid() {
+			return nil, urn.ErrInvalidURN
+		}
+
+		identity, _, err := m.idam.Get(u)
+		if err != nil {
+			return nil, err
+		}
+
+		roles = identity.Roles
+	} else {
+		roles = m.idam.GetRoles()
+	}
 
 	return &idamV1.RoleLookupResponse{
 		RoleNames: roles,
@@ -198,7 +228,7 @@ func (m *Manager) ListRoles(ctx context.Context, in *idamV1.RoleLookupRequest) (
 // DeleteRole deletes a role
 func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) (*homebotApi.Empty, error) {
 	auth, ok := policy.TokenFromContext(ctx)
-	if ok || auth.Valid() != nil {
+	if !ok || auth.Valid() != nil {
 		return nil, idam.ErrNotAuthenticated
 	}
 
