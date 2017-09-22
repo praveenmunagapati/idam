@@ -84,7 +84,7 @@ var listCmd = &cobra.Command{
 				}
 			}
 
-			if idx != len(response)-1 {
+			if idx != len(response)-1 && listVerbose {
 				fmt.Printf("\n")
 			}
 		}
