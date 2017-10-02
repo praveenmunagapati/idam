@@ -6,18 +6,17 @@ import (
 	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/homebot/core/urn"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestValidToken(t *testing.T) {
 	key := "foobar"
 
-	sub := urn.URN("urn:namespace:service:accountId:resourceType:resource")
-	groups := []string{"role1"}
+	sub := "user:admin@homebot.org"
+	roles := []string{"role1"}
 	issuer := "authority"
 
-	token, err := New(sub, groups, issuer, time.Now(), "HS256", strings.NewReader(key))
+	token, err := New(sub, roles, issuer, time.Now(), "HS256", strings.NewReader(key))
 	assert.NoError(t, err)
 	assert.NotEqual(t, "", token)
 
@@ -28,16 +27,4 @@ func TestValidToken(t *testing.T) {
 	assert.NotNil(t, parsed)
 
 	assert.Error(t, parsed.Valid())
-}
-
-func TestTokenOwner(t *testing.T) {
-	token := &Token{
-		URN: urn.IdamIdentityResource.BuildURN("", "admin", "admin"),
-	}
-
-	u := urn.SigmaFunctionResource.BuildURN("foobar", "admin", "test-resource")
-	assert.True(t, token.OwnsURN(u))
-
-	u2 := urn.SigmaFunctionResource.BuildURN("foobar", "another-user", "test-resource")
-	assert.False(t, token.OwnsURN(u2))
 }

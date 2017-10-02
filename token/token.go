@@ -9,7 +9,6 @@ import (
 	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
 	homedir "github.com/mitchellh/go-homedir"
 	"google.golang.org/grpc/metadata"
@@ -74,11 +73,11 @@ func SaveToken(token, path string) error {
 // Token is an authentication token for an identity and digitally
 // signed by the issuer
 type Token struct {
-	// URN of the identity the token authenticates
-	URN urn.URN
+	// Name of the identity the token authenticates
+	Name string
 
-	// Groups it the list of groups the identity belongs to
-	Groups []string
+	// Permissions holds a list of permissions granted to the token
+	Permissions []string
 
 	// Issuer is the issuer of the authentication token
 	Issuer string
@@ -94,28 +93,18 @@ type Token struct {
 }
 
 // ForIdentity checks if the given token is for `i`
-func (t *Token) ForIdentity(i *idam.Identity) bool {
-	return t.URN.String() == i.URN().String()
+func (t *Token) ForIdentity(i idam.Identity) bool {
+	return t.Name == i.AccountName()
 }
 
-// HasGroup checks if the token has a given group
-func (t *Token) HasGroup(grp string) bool {
-	for _, g := range t.Groups {
-		if g == grp {
+// HasPermission checks if the token has a given group
+func (t *Token) HasPermission(perm string) bool {
+	for _, p := range t.Permissions {
+		if p == perm {
 			return true
 		}
 	}
 	return false
-}
-
-// Owns checks if the identity of the token owns the resource `r`
-func (t *Token) Owns(r urn.Resource) bool {
-	return t.OwnsURN(r.URN())
-}
-
-// OwnsURN checks if the identity of the token owns a given URN
-func (t *Token) OwnsURN(r urn.URN) bool {
-	return t.URN.AccountID() == r.AccountID()
 }
 
 // Valid checks if the token is still valid
@@ -161,17 +150,17 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 		return nil, ErrInvalidToken
 	}
 
-	var groups []string
-	if _, ok := claim["groups"]; ok {
-		grps, ok := claim["groups"].([]interface{})
+	var grants []string
+	if _, ok := claim["grants"]; ok {
+		grant, ok := claim["grants"].([]interface{})
 		if ok {
-			for _, gi := range grps {
+			for _, gi := range grant {
 				g, ok := gi.(string)
 				if !ok {
 					return nil, ErrInvalidToken
 				}
 
-				groups = append(groups, g)
+				grants = append(grants, g)
 			}
 		}
 	}
@@ -188,11 +177,11 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 	}
 
 	t := &Token{
-		URN:    urn.URN(u),
-		Groups: groups,
-		Issuer: issuer,
-		Expire: time.Unix(expire, 0),
-		JWT:    tokenData,
+		Name:        u,
+		Permissions: grants,
+		Issuer:      issuer,
+		Expire:      time.Unix(expire, 0),
+		JWT:         tokenData,
 	}
 
 	issuedAt, ok := claim["iat"].(float64)
@@ -204,10 +193,10 @@ func FromJWT(tokenData string, keyFn func(token *jwt.Token) (interface{}, error)
 }
 
 // New creates a new signed JWT token
-func New(sub urn.URN, groups []string, issuer string, expire time.Time, alg string, key io.Reader) (string, error) {
+func New(sub string, permissions []string, issuer string, expire time.Time, alg string, key io.Reader) (string, error) {
 	claim := jwt.MapClaims{
-		"sub":    sub.String(),
-		"groups": groups,
+		"sub":    sub,
+		"grants": permissions,
 		"exp":    expire.Unix(),
 		"iss":    issuer,
 		"iat":    time.Now().Unix(),
@@ -250,14 +239,14 @@ type KeyProviderFunc func(issuer string, alg string) (interface{}, error)
 func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*Token, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return nil, idam.ErrNotAuthenticated
+		return nil, errors.New("missing authorization")
 	}
 
 	header, ok := md["Authorization"]
 	if !ok {
 		header, ok = md["authorization"]
 		if !ok {
-			return nil, idam.ErrNotAuthenticated
+			return nil, errors.New("missing authorization")
 		}
 	}
 

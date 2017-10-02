@@ -7,12 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"reflect"
-	"strings"
 
 	proto "github.com/golang/protobuf/proto"
 	protobuf "github.com/golang/protobuf/protoc-gen-go/descriptor"
-	"github.com/homebot/core/urn"
 	"github.com/homebot/idam/token"
 	homebot "github.com/homebot/protobuf/pkg/api"
 	idamPolicy "github.com/homebot/protobuf/pkg/api/idam/policy"
@@ -35,12 +34,249 @@ func ContextWithToken(ctx context.Context, token *token.Token) context.Context {
 	return context.WithValue(ctx, PolicyTokenKey, token)
 }
 
-// JWTKeyVerifier provides the JWT verification key based on the issuer and
-// algorithm specified in the token
-type JWTKeyVerifier interface {
-	// VerificationKey should return the verification key for the given issuer
-	// and algorithm. It implements token.KeyProviderFunc
+// OwnerException is an additional policy that is applied if the
+// identity that performs the request owns the resource it want's
+// to operate on
+type OwnerException struct {
+	// AlwaysAllow is set to true if the request should always
+	// be allowed it the identity is the resource owner
+	AlwaysAllow bool
+
+	// GrantPermissions is a list of permissions that are implicitly
+	// granted to the resource owner
+	GrantPermissions []string
+
+	// ResourceNameField holds the name of the field that contains the
+	// resource name
+	ResourceNameField string
+}
+
+// Policy defines access policies for service methods
+type Policy struct {
+	// RequiredPermissions is a list of permissions an identity must
+	// have in order to perform the request
+	RequiredPermissions []string
+
+	// AllowAuthenticated may be set to true to allow all authenticated
+	// identities
+	AllowAuthenticated bool
+
+	// OwnerException is an additional policy that is applied if the
+	// identity that performs the request owns the resource it want's
+	// to operate on
+	OwnerException *OwnerException
+}
+
+type PolicyEnforcedServer interface {
+	IsResourceOwner(resource, identity string, permissions []string) (bool, error)
+
 	VerificationKey(issuer string, alg string) (interface{}, error)
+}
+
+// Enforcer enforces homebot API policies
+type Enforcer struct {
+	methods map[string][]Policy
+}
+
+// NewEnforcer creates a new policy enforcer
+func NewEnforcer(files ...string) (*Enforcer, error) {
+	e := &Enforcer{
+		methods: make(map[string][]Policy),
+	}
+
+	if err := e.buildPolicies(files); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+// UnaryInterceptor inspects unary RPC calls and enforces HomeBot API policies attached
+// to the service definition
+func (e *Enforcer) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	ctx, err := e.enforcePolicy(ctx, info.Server, req, false, info.FullMethod)
+	if err != nil {
+		return nil, err
+	}
+
+	return handler(ctx, req)
+}
+
+type streamContextWrapper struct {
+	grpc.ServerStream
+
+	ctx context.Context
+}
+
+func (s *streamContextWrapper) Context() context.Context {
+	return s.ctx
+}
+
+// StreamInterceptor inspects stream RPCs and enforces HomeBot API policies attached to
+// the service definition
+func (e *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ctx, err := e.enforcePolicy(stream.Context(), srv, nil, info.IsClientStream, info.FullMethod)
+	if err != nil {
+		return err
+	}
+
+	wrappedStream := &streamContextWrapper{
+		ServerStream: stream,
+		ctx:          ctx,
+	}
+
+	return handler(srv, wrappedStream)
+}
+
+func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
+	policies := e.methods[methodName]
+
+	if len(policies) == 0 {
+		log.Printf("no policies to enforce for %q\n", methodName)
+		return ctx, nil
+	}
+
+	s, ok := srv.(PolicyEnforcedServer)
+	if !ok {
+		return ctx, errors.New("not a policy enforced server")
+	}
+
+	jwt, tokenErr := token.FromMetadata(ctx, s.VerificationKey)
+	if tokenErr != nil {
+		return ctx, tokenErr
+	}
+
+	ctx = ContextWithToken(ctx, jwt)
+
+	// Check if there's a policy allowing all authenticated users
+	for _, p := range policies {
+		if p.AllowAuthenticated {
+			return ctx, nil
+		}
+	}
+
+	for _, p := range policies {
+		// if we have an owner exception configured, apply it now
+		permissions := jwt.Permissions
+
+		if p.OwnerException != nil {
+			resource, ok := getProtoField(req, p.OwnerException.ResourceNameField)
+			if !ok {
+				return ctx, errors.New("message does not contain name field")
+			}
+
+			ok, err := s.IsResourceOwner(resource, jwt.Name, jwt.Permissions)
+			if err != nil {
+				return ctx, err
+			}
+
+			if ok {
+				if p.AllowAuthenticated {
+					continue
+				}
+
+				permissions = append(permissions, p.RequiredPermissions...)
+			}
+		}
+
+	L:
+		for _, perm := range p.RequiredPermissions {
+			for _, granted := range permissions {
+				if perm == granted {
+					continue L
+				}
+			}
+
+			return ctx, errors.New("not authorized")
+		}
+	}
+
+	return ctx, nil
+}
+
+func getProtoField(req interface{}, field string) (string, bool) {
+	typ := reflect.ValueOf(req).Elem().Type()
+	props := proto.GetProperties(typ)
+
+	for _, prop := range props.Prop {
+		if field == prop.OrigName {
+			val := reflect.ValueOf(req).Elem().FieldByName(prop.Name)
+
+			return val.String(), true
+		}
+	}
+
+	return "", false
+}
+
+func (e *Enforcer) buildPolicies(files []string) error {
+	for _, f := range files {
+		descriptor := proto.FileDescriptor(f)
+
+		if len(descriptor) == 0 {
+			return fmt.Errorf("unknown file: %s", f)
+		}
+
+		fd, err := extractFile(descriptor)
+		if err != nil {
+			return err
+		}
+
+		pkgName := fd.GetPackage()
+
+		for _, svc := range fd.Service {
+			svcName := fmt.Sprintf("%s.%s", pkgName, svc.GetName())
+
+			for _, method := range svc.Method {
+				methodName := fmt.Sprintf("%s/%s", svcName, method.GetName())
+
+				policies, err := buildMethodPolicies(method)
+				if err != nil {
+					return err
+				}
+
+				if len(policies) > 0 {
+					e.methods[methodName] = policies
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func buildMethodPolicies(m *protobuf.MethodDescriptorProto) ([]Policy, error) {
+	options := m.GetOptions()
+
+	if options != nil {
+		extension, err := proto.GetExtension(options, homebot.E_MethodPolicy)
+		if protoPolicies, ok := extension.([]*idamPolicy.PolicyRule); err == nil && ok {
+			var policies []Policy
+
+			for _, polpb := range protoPolicies {
+				pol := Policy{
+					RequiredPermissions: polpb.GetPermissions(),
+					AllowAuthenticated:  polpb.GetAllowAuthenticated(),
+				}
+
+				if owner := polpb.GetIfOwner(); owner != nil {
+					pol.OwnerException = &OwnerException{
+						AlwaysAllow:       owner.GetAllow(),
+						GrantPermissions:  owner.GetGrantPermissions(),
+						ResourceNameField: owner.GetResource(),
+					}
+				}
+
+				policies = append(policies, pol)
+			}
+
+			return policies, nil
+		} else if err == nil && !ok {
+			return nil, errors.New("invalid extension type")
+		}
+	}
+
+	return nil, nil
 }
 
 func extractFile(gz []byte) (*protobuf.FileDescriptorProto, error) {
@@ -61,228 +297,4 @@ func extractFile(gz []byte) (*protobuf.FileDescriptorProto, error) {
 	}
 
 	return fd, nil
-}
-
-// Enforcer inspects unary and streaming RPC calls and enforces HomeBot access policies
-// attached to the service definition
-type Enforcer struct {
-	services map[string]*protobuf.ServiceDescriptorProto
-}
-
-func (e *Enforcer) ServerOptions() []grpc.ServerOption {
-	return []grpc.ServerOption{
-		grpc.StreamInterceptor(e.StreamInterceptor),
-		grpc.UnaryInterceptor(e.UnaryInterceptor),
-	}
-}
-
-// NewEnforcer returns a new policy enforcer using the given protocol buffer files
-// and `keyFn` for verifying JSON Web Tokens
-func NewEnforcer(files []string) (*Enforcer, error) {
-	p := &Enforcer{
-		services: make(map[string]*protobuf.ServiceDescriptorProto),
-	}
-
-	for _, f := range files {
-		descriptor := proto.FileDescriptor(f)
-		if len(descriptor) == 0 {
-			return nil, fmt.Errorf("unknown file: %s", f)
-		}
-
-		fd, err := extractFile(descriptor)
-		if err != nil {
-			return nil, err
-		}
-
-		pkgName := fd.GetPackage()
-
-		for _, svc := range fd.Service {
-			svcName := fmt.Sprintf("%s.%s", pkgName, svc.GetName())
-			p.services[svcName] = svc
-		}
-	}
-
-	if err := p.checkForErrors(); err != nil {
-		return nil, err
-	}
-
-	return p, nil
-}
-
-func (p *Enforcer) getPolicy(methodName string) ([]*idamPolicy.PolicyRule, error) {
-	parts := strings.Split(methodName, "/")
-	svc := parts[1]
-	method := parts[2]
-
-	var policies []*idamPolicy.PolicyRule
-
-L:
-	for name, s := range p.services {
-		if name != svc {
-			continue
-		}
-
-		if s.GetOptions() != nil {
-			p, err := proto.GetExtension(s.Options, homebot.E_MethodPolicy)
-			if err == nil {
-				servicePolicies, ok := p.([]*idamPolicy.PolicyRule)
-				if !ok {
-					return nil, errors.New("invalid policy message type")
-				}
-
-				policies = append(policies, servicePolicies...)
-			}
-		}
-
-		for _, m := range s.Method {
-			if m.GetName() == method && m.GetOptions() != nil {
-				p, err := proto.GetExtension(m.Options, homebot.E_Policy)
-				if err == nil {
-					policy, ok := p.([]*idamPolicy.PolicyRule)
-					if !ok {
-						return nil, errors.New("invalid policy message type")
-					}
-
-					policies = append(policies, policy...)
-				}
-				break L
-			}
-		}
-	}
-
-	return policies, nil
-}
-
-// UnaryInterceptor inspects unary RPC calls and enforces HomeBot API policies attached
-// to the service definition
-func (p *Enforcer) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	ctx, err := p.enforce(ctx, info.Server, req, false, info.FullMethod)
-	if err != nil {
-		return nil, err
-	}
-
-	return handler(ctx, req)
-}
-
-type streamContextWrapper struct {
-	grpc.ServerStream
-
-	ctx context.Context
-}
-
-func (s *streamContextWrapper) Context() context.Context {
-	return s.ctx
-}
-
-// StreamInterceptor inspects stream RPCs and enforces HomeBot API policies attached to
-// the service definition
-func (p *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	ctx, err := p.enforce(stream.Context(), srv, nil, info.IsClientStream, info.FullMethod)
-	if err != nil {
-		return err
-	}
-
-	wrappedStream := &streamContextWrapper{
-		ServerStream: stream,
-		ctx:          ctx,
-	}
-
-	return handler(srv, wrappedStream)
-}
-
-func (p *Enforcer) enforce(ctx context.Context, srv interface{}, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
-	policy, err := p.getPolicy(methodName)
-	if err != nil {
-		return ctx, err
-	}
-
-	verifier, ok := srv.(JWTKeyVerifier)
-	if !ok {
-		return nil, fmt.Errorf("server configuration error: cannot verify key: %T", srv)
-	}
-
-	jwt, tokenErr := token.FromMetadata(ctx, verifier.VerificationKey)
-
-	authRequired := false
-
-	for _, p := range policy {
-		if !p.AllowAll && (p.AllowAuthenticated || p.OwnerOnly != "" || len(p.Roles) > 0) {
-			authRequired = true
-		}
-
-		if authRequired && (tokenErr != nil || jwt == nil) {
-			return ctx, fmt.Errorf("authentication required: %s", tokenErr) //idam.ErrNotAuthenticated
-		}
-
-		if !clientStreaming && p.OwnerOnly != "" && req != nil {
-			typ := reflect.ValueOf(req).Elem().Type()
-			props := proto.GetProperties(typ)
-		L:
-			for _, prop := range props.Prop {
-				if p.OwnerOnly == prop.OrigName {
-					val := reflect.ValueOf(req).Elem().FieldByName(prop.Name)
-
-					if !jwt.OwnsURN(urn.URN(val.String())) {
-						return ctx, fmt.Errorf("ownerOnly") //idam.ErrNotAuthorized
-					}
-
-					break L
-				}
-			}
-		}
-
-		for _, r := range p.GetRoles() {
-			if !jwt.HasGroup(r) {
-				return ctx, fmt.Errorf("missing group: %q, %+v", r, jwt.Groups) //idam.ErrNotAuthorized
-			}
-		}
-	}
-
-	ctx = ContextWithToken(ctx, jwt)
-
-	return ctx, nil
-}
-
-func (p *Enforcer) checkForErrors() error {
-	for name, service := range p.services {
-		if service.Options != nil {
-			opt, err := proto.GetExtension(service.Options, homebot.E_MethodPolicy)
-			if err == nil {
-				sopt, ok := opt.([]*idamPolicy.PolicyRule)
-				if !ok {
-					return fmt.Errorf("invalid service option type for service %s", name)
-				}
-
-				for _, policy := range sopt {
-					if policy.OwnerOnly != "" {
-						return fmt.Errorf("%s: service option cannot use OwnerOnly", name)
-					}
-				}
-			}
-		}
-
-		for _, method := range service.Method {
-			methodName := method.GetName()
-
-			if method.Options == nil {
-				continue
-			}
-
-			opt, err := proto.GetExtension(method.Options, homebot.E_Policy)
-			if err == nil {
-				mopt, ok := opt.([]*idamPolicy.PolicyRule)
-				if !ok {
-					return fmt.Errorf("invalid method option on %s/%s", name, methodName)
-				}
-
-				for _, policy := range mopt {
-					if (method.GetClientStreaming() || method.GetServerStreaming()) && policy.OwnerOnly != "" {
-						return fmt.Errorf("streaming RPC cannot use OwnerOnly: %s.%s", name, methodName)
-					}
-				}
-			}
-		}
-	}
-
-	return nil
 }
