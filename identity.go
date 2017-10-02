@@ -5,6 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pquerna/otp/totp"
+
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/golang/protobuf/ptypes"
 
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
@@ -549,4 +553,18 @@ func IdentityFromProto(p *idamV1.Identity) (Identity, error) {
 	default:
 		return nil, ErrInvalidType
 	}
+}
+
+// CheckPassword checks the identities password
+func CheckPassword(hash []byte, pass string) error {
+	return bcrypt.CompareHashAndPassword(hash, []byte(pass))
+}
+
+// Check2FA checks a one-time-token
+func Check2FA(secret string, token string) error {
+	if totp.Validate(token, secret) {
+		return nil
+	}
+
+	return errors.New("invalid token")
 }

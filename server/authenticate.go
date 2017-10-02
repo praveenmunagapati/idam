@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/homebot/core/log"
-	"github.com/homebot/core/urn"
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/token"
@@ -20,28 +19,42 @@ func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.L
 		return nil, errors.New("missing identity principal")
 	}
 
-	principal := urn.URN(in.GetUrn())
-	if !principal.Valid() {
-		return nil, urn.ErrInvalidURN
-	}
+	principal := in.GetUrn()
 
-	ok, err := m.idam.Verify(principal, string(in.GetPassword()), string(in.GetOneTimeSecret()))
-
-	if err != nil || !ok {
-		return nil, idam.ErrNotAuthenticated
-	}
-
-	identity, _, err := m.idam.Get(principal)
+	identity, err := m.identities.Get(principal)
 	if err != nil {
 		return nil, err
 	}
 
-	newToken, err := token.New(identity.URN(), identity.Roles, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+	hash, err := m.identities.GetPasswordHash(principal)
 	if err != nil {
 		return nil, err
 	}
 
-	log.WithURN(identity.URN()).Infof("issuing new JWT")
+	secret, err := m.identities.Get2FASecret(principal)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := idam.CheckPassword(hash, in.GetPassword()); err != nil {
+		return nil, err
+	}
+
+	if secret != "" {
+		if err := idam.Check2FA(secret, in.GetOneTimeSecret()); err != nil {
+			return nil, err
+		}
+	}
+
+	permissions, err := m.getPermissionNames(principal)
+	if err != nil {
+		return nil, err
+	}
+
+	newToken, err := token.New(identity.AccountName(), permissions, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+	if err != nil {
+		return nil, err
+	}
 
 	return &idamV1.LoginResponse{
 		Token: newToken,
@@ -55,12 +68,17 @@ func (m *Manager) Renew(ctx context.Context, in *idamV1.RenewTokenRequest) (*ida
 		return nil, errors.New("token not valid")
 	}
 
-	identity, _, err := m.idam.Get(auth.URN)
+	identity, err := m.identities.Get(auth.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	newToken, err := token.New(identity.URN(), identity.Roles, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+	permissions, err := m.getPermissionNames(auth.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	newToken, err := token.New(identity.AccountName(), permissions, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
 	if err != nil {
 		return nil, err
 	}
@@ -76,19 +94,17 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 
 	auth, ok := policy.TokenFromContext(stream.Context())
 
-	var identity *idam.Identity
+	var identity idam.Identity
 
 	if ok && auth.Valid() == nil {
 		// Already authenticated, issue a new token
-		i, _, err := m.idam.Get(auth.URN)
+		i, err := m.identities.Get(auth.Name)
 		if err != nil {
 			return err
 		}
 
 		identity = i
 		issue = true
-
-		log.WithURN(auth.URN).Debugf("re-authenticated")
 	} else {
 		// wait for the first "Answer" containing the username
 		ans, err := stream.Recv()
@@ -100,26 +116,31 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			return errors.New("invalid type")
 		}
 
-		u := urn.URN(ans.GetUsername())
-		if !u.Valid() {
-			return urn.ErrInvalidURN
+		i, err := m.identities.Get(ans.GetUsername())
+		if err != nil {
+			return err
 		}
 
-		i, has2FA, err := m.idam.Get(u)
+		secret, err := m.identities.Get2FASecret(ans.GetUsername())
+		if err != nil {
+			return err
+		}
+
+		hash, err := m.identities.GetPasswordHash(ans.GetUsername())
 		if err != nil {
 			return err
 		}
 
 		logFA := "without"
-		if has2FA {
+		if secret != "" {
 			logFA = "with"
 		}
 
-		log.WithURN(u).Debugf("started authentication %s 2FA", logFA)
+		log.Debugf("started authentication %s 2FA", logFA)
 
 		identity = i
 
-		ok2FA := !has2FA
+		ok2FA := !(secret == "")
 		okPass := false
 
 		pass := ""
@@ -133,7 +154,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			},
 		})
 
-		if has2FA {
+		if secret != "" {
 			stream.Send(&idamV1.ConversationRequest{
 				Request: &idamV1.ConversationRequest_Question{
 					Question: &idamV1.ConversationQuestion{
@@ -174,23 +195,30 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			}
 		}
 
-		ok, err := m.idam.Verify(u, pass, otp)
-		if err != nil {
-			log.WithURN(u).Infof("authentication failed")
+		if err := idam.CheckPassword(hash, pass); err != nil {
+			log.Infof("authentication failed")
 			return err
 		}
 
-		if !ok {
-			return idam.ErrNotAuthenticated
+		if secret != "" {
+			if err := idam.Check2FA(secret, otp); err != nil {
+				log.Infof("authentication failed")
+				return err
+			}
 		}
 
-		log.WithURN(u).Infof("authentication successfull")
+		log.Infof("authentication successfull")
 
 		issue = true
 	}
 
 	if issue && identity != nil {
-		newToken, err := token.New(identity.URN(), identity.Roles, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
+		permissions, err := m.getPermissionNames(identity.AccountName())
+		if err != nil {
+			return err
+		}
+
+		newToken, err := token.New(identity.AccountName(), permissions, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
 		if err != nil {
 			return err
 		}
@@ -203,7 +231,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			},
 		}
 
-		log.WithURN(identity.URN()).Infof("issuing new JWT")
+		log.Infof("issuing new JWT")
 
 		if err := stream.Send(resp); err != nil {
 			return err
@@ -212,7 +240,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 		return nil
 	}
 
-	return idam.ErrNotAuthenticated
+	return errors.New("not authenticated")
 }
 
 var _ idamV1.AuthenticatorServer = &Manager{}

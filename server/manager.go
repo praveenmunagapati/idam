@@ -23,9 +23,11 @@ type Manager struct {
 }
 
 // New creates a new manager server
-func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
+func New(i idam.IdentityProvider, r idam.RoleProvider, p idam.PermissionProvider, opts ...Option) (*Manager, error) {
 	m := &Manager{
-		idam: p,
+		identities:  i,
+		roles:       r,
+		permissions: p,
 	}
 
 	for _, fn := range opts {
@@ -56,4 +58,45 @@ func New(p provider.IdentityManager, opts ...Option) (*Manager, error) {
 // VerificationKey returns the JWT token verification key and implements policy.JWTKeyVerifier
 func (m *Manager) VerificationKey(issuer string, alg string) (interface{}, error) {
 	return m.signingCert, nil
+}
+
+func (m *Manager) getPermissions(i string) ([]idam.Permission, error) {
+	var res []idam.Permission
+
+	identity, err := m.identities.Get(i)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range identity.Roles() {
+		role, err := m.roles.Get(r)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, p := range role.Permissions {
+			perm, err := m.permissions.Get(p)
+			if err != nil {
+				return nil, err
+			}
+
+			res = append(res, *perm)
+		}
+	}
+
+	return res, nil
+}
+
+func (m *Manager) getPermissionNames(i string) ([]string, error) {
+	perms, err := m.getPermissions(i)
+	if err != nil {
+		return nil, err
+	}
+
+	var res []string
+	for _, p := range perms {
+		res = append(res, p.Name)
+	}
+
+	return res, nil
 }
