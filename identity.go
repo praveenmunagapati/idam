@@ -531,24 +531,36 @@ func IdentityFromProto(p *idamV1.Identity) (Identity, error) {
 			return nil, ErrInvalidPrefix
 		}
 
-		return NewGroupWithMetadata(p.GetName(), p.GetRoles(), p.GetGroups(), members, Metadata{
+		group := NewGroupWithMetadata(p.GetName(), p.GetRoles(), p.GetGroups(), members, Metadata{
 			Creator: p.GetCreator(),
 			Created: created,
 			Updated: updated,
 			Labels:  p.GetLabels(),
-		}), nil
+		})
+
+		if p.GetDisabled() {
+			DisableIdentity(group)
+		}
+
+		return group, nil
 
 	case idamV1.IdentityType_USER:
 		if !strings.HasPrefix(p.GetName(), IdentityPrefixUser) {
 			return nil, ErrInvalidPrefix
 		}
 
-		return NewUserIdentityWithMetadata(p.GetName(), p.GetRoles(), p.GetGroups(), Metadata{
+		user := NewUserIdentityWithMetadata(p.GetName(), p.GetRoles(), p.GetGroups(), Metadata{
 			Created: created,
 			Updated: updated,
 			Creator: p.GetCreator(),
 			Labels:  p.GetLabels(),
-		}), nil
+		})
+
+		if p.GetDisabled() {
+			DisableIdentity(user)
+		}
+
+		return user, nil
 
 	default:
 		return nil, ErrInvalidType

@@ -38,6 +38,7 @@ var (
 	cuRoles         []string
 	cuGroups        []string
 	cuNoQR          bool
+	cuDisabled      bool
 )
 
 // createUserCmd represents the user command
@@ -86,6 +87,10 @@ var createUserCmd = &cobra.Command{
 		identity.LastName = cuLastName
 		identity.MailAddresses = cuSeconaryMails
 
+		if cuDisabled {
+			idam.DisableIdentity(identity)
+		}
+
 		var secret string
 
 		ui.Step("Creating user", func() error {
@@ -124,4 +129,5 @@ func init() {
 	createUserCmd.Flags().StringSliceVar(&cuSeconaryMails, "mail", []string{}, "Additional mail addresses for the user")
 	createUserCmd.Flags().StringSliceVarP(&cuGroups, "group", "g", nil, "List of groups memberships for the new user")
 	createUserCmd.Flags().BoolVar(&cuNoQR, "no-qr", false, "Don't display the QR code")
+	createUserCmd.Flags().BoolVar(&cuDisabled, "disable", false, "Disable the new user account")
 }

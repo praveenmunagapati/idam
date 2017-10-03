@@ -26,6 +26,10 @@ func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.L
 		return nil, err
 	}
 
+	if identity.Disabled() {
+		return nil, errors.New("identity disabled")
+	}
+
 	hash, err := m.identities.GetPasswordHash(principal)
 	if err != nil {
 		return nil, err
@@ -73,6 +77,10 @@ func (m *Manager) Renew(ctx context.Context, in *idamV1.RenewTokenRequest) (*ida
 		return nil, err
 	}
 
+	if identity.Disabled() {
+		return nil, errors.New("identity disabled")
+	}
+
 	permissions, err := m.getPermissionNames(auth.Name)
 	if err != nil {
 		return nil, err
@@ -103,6 +111,10 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			return err
 		}
 
+		if i.Disabled() {
+			return errors.New("identity disabled")
+		}
+
 		identity = i
 		issue = true
 	} else {
@@ -119,6 +131,10 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 		i, err := m.identities.Get(ans.GetUsername())
 		if err != nil {
 			return err
+		}
+
+		if i.Disabled() {
+			return errors.New("identity disabled")
 		}
 
 		secret, err := m.identities.Get2FASecret(ans.GetUsername())

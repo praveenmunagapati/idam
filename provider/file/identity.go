@@ -348,11 +348,20 @@ func copyIdentiy(i idam.Identity) (idam.Identity, error) {
 		u.LastName = v.LastName
 		u.MailAddresses = copyStringSlice(v.MailAddresses)
 
+		if i.Disabled() {
+			idam.DisableIdentity(u)
+		}
+
 		return u, nil
 
 	case *idam.Group:
 		members := copyStringSlice(v.Members())
 		g := idam.NewGroupWithMetadata(i.AccountName(), roles, groups, members, meta)
+
+		if i.Disabled() {
+			idam.DisableIdentity(g)
+		}
+
 		return g, nil
 
 	default:

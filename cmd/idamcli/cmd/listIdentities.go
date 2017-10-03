@@ -113,10 +113,18 @@ var listIdentitiesCmd = &cobra.Command{
 				}
 
 				if idx == 0 {
+					var userAttr []color.Attribute
+
+					if i.Disabled() {
+						userAttr = append(userAttr, color.FgHiYellow)
+						name = name + " (disabled)"
+					}
+
 					row = append(row,
 						table.Column{
 							Value:      name,
-							Attributes: []color.Attribute{color.Bold},
+							Attributes: userAttr,
+							Bold:       true,
 						},
 						table.Column{
 							Value: identityType,
