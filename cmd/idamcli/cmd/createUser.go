@@ -17,9 +17,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/howeyc/gopass"
+	"github.com/mdp/qrterminal"
 
 	ui "github.com/homebot/core/cli"
 	"github.com/homebot/idam"
@@ -35,6 +37,7 @@ var (
 	cuSeconaryMails []string
 	cuRoles         []string
 	cuGroups        []string
+	cuNoQR          bool
 )
 
 // createUserCmd represents the user command
@@ -102,6 +105,10 @@ var createUserCmd = &cobra.Command{
 
 		if cuOTP {
 			fmt.Printf("\nOne-Time-Secret: %s\n", secret)
+
+			if !cuNoQR {
+				qrterminal.Generate(secret, qrterminal.L, os.Stdout)
+			}
 		}
 	},
 }
@@ -116,4 +123,5 @@ func init() {
 	createUserCmd.Flags().StringSliceVarP(&cuRoles, "role", "r", []string{}, "Roles for the new user")
 	createUserCmd.Flags().StringSliceVar(&cuSeconaryMails, "mail", []string{}, "Additional mail addresses for the user")
 	createUserCmd.Flags().StringSliceVarP(&cuGroups, "group", "g", nil, "List of groups memberships for the new user")
+	createUserCmd.Flags().BoolVar(&cuNoQR, "no-qr", false, "Don't display the QR code")
 }

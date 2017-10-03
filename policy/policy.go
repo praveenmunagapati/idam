@@ -1,3 +1,35 @@
+// Package policy provides a unary and stream interceptor for gRPC
+// that enforces HomeBot access policies attached to the protobuf
+// definitions of services and methods. Access is granted based on
+// a set of required permissions that must be present in a JWT authorization
+// bearer as the "granted" claim.
+//
+// Currently one needs to specify the relative imports paths of the proto
+// files that contain the service definitions. This may be improved once
+// https://github.com/grpc/grpc-go/issues/1526 is resolved.
+//
+// In order for the policy enforcer to work, the gRPC server interface
+// must implement the `PolicyEnforcedServer` interface.
+//
+// Usage:
+//
+//   service MyService {
+//		rpc MyMethod(Request) returns (Response) {
+//			option (homebot.api.policy) = {
+//				permissions: [
+//					"myservice.myresource.read",
+//					"myservice.myresource.write",
+//				]
+//			}
+//		}
+//   }
+//
+// Now add a policy enforcer to you gRPC server:
+//
+//		enforcer, err := policy.NewEnforcer("myservice.proto")
+//
+//		srv := grpc.NewServer("0.0.0.0:52000", enforcer.ServerOptions()...)
+//
 package policy
 
 import (

@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/homebot/core/utils"
 	"github.com/homebot/idam"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
@@ -91,12 +92,13 @@ func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityR
 
 // LookupIdentities implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest) (*idamV1.LookupResponse, error) {
-	// TODO: add support for pagination
-
 	list, err := m.identities.List()
 	if err != nil {
 		return nil, err
 	}
+
+	start, end, token, err := utils.Paginate(in.GetPageToken(), len(list), in.GetPageSize())
+	list = list[start:end]
 
 	var res []*idamV1.Identity
 	for _, i := range list {
@@ -108,7 +110,8 @@ func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest
 		res = append(res, pb)
 	}
 	return &idamV1.LookupResponse{
-		Identities: res,
+		Identities:    res,
+		NextPageToken: token,
 	}, nil
 }
 

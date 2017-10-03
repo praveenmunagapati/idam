@@ -76,14 +76,11 @@ var listIdentitiesCmd = &cobra.Command{
 
 		for _, i := range response {
 			identityType := "Service"
-			var identityColor color.Attribute
 
 			if idam.IsUser(i) {
 				identityType = "User"
-				identityColor = color.FgBlue
 			} else if idam.IsGroup(i) {
 				identityType = "Group"
-				identityColor = color.FgCyan
 			}
 
 			name, err := idam.StripIdentityNamePrefix(i.AccountName())
@@ -109,10 +106,10 @@ var listIdentitiesCmd = &cobra.Command{
 
 				if idx < len(i.Groups()) {
 					name, _ := idam.StripIdentityNamePrefix(i.Groups()[idx])
-					group = "- " + name
+					group = name
 				}
 				if idx < len(i.Roles()) {
-					role = "- " + i.Roles()[idx]
+					role = i.Roles()[idx]
 				}
 
 				if idx == 0 {
@@ -122,8 +119,7 @@ var listIdentitiesCmd = &cobra.Command{
 							Attributes: []color.Attribute{color.Bold},
 						},
 						table.Column{
-							Value:      identityType,
-							Attributes: []color.Attribute{identityColor},
+							Value: identityType,
 						},
 						table.Column{
 							Value:      role,
