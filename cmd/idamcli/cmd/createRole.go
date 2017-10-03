@@ -15,9 +15,16 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log"
 
+	ui "github.com/homebot/core/cli"
 	"github.com/spf13/cobra"
+)
+
+var (
+	createRolePermissions        []string
+	createRoleMissingPermissions bool
 )
 
 // createRoleCmd represents the role command
@@ -35,12 +42,20 @@ var createRoleCmd = &cobra.Command{
 		}
 		defer cli.Close()
 
-		if err := cli.CreateRole(context.Background(), args[0]); err != nil {
-			log.Fatal(err)
+		// TODO: add support to createRoleMissingPermissions
+		if createRoleMissingPermissions {
+			ui.Fatalf("--create-permissions not yet supported")
 		}
+
+		ui.RunFatal(fmt.Sprintf("Creating role %s", args[0]), func() error {
+			return cli.CreateRole(context.Background(), args[0], createRolePermissions)
+		})
 	},
 }
 
 func init() {
 	addCmd.AddCommand(createRoleCmd)
+
+	createRoleCmd.Flags().StringSliceVarP(&createRolePermissions, "permission", "p", nil, "A list of permissions for the new role")
+	createRoleCmd.Flags().BoolVarP(&createRoleMissingPermissions, "create-permissions", "c", false, "Create permissions that does not exist yet")
 }

@@ -14,8 +14,9 @@
 package cmd
 
 import (
-	"log"
+	"fmt"
 
+	"github.com/homebot/core/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -25,10 +26,13 @@ var loginCmd = &cobra.Command{
 	Short: "Login to IDAM and retrieve a new authentication token",
 	Run: func(cmd *cobra.Command, args []string) {
 		conn, err := newClient()
-		if err != nil {
-			log.Fatal(err)
+		if err == nil {
+			defer conn.Close()
 		}
-		conn.Close()
+
+		cli.Run(fmt.Sprintf("Authenticating against %s", idamServer), func() error {
+			return err
+		})
 	},
 }
 

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -130,7 +131,8 @@ func (cred *IdamCredentials) authenticate(ctx context.Context) (*token.Token, er
 		}
 	}
 
-	if cred.t != nil && cred.t.Expire.After(time.Now().Add(time.Minute*5)) {
+	if cred.t != nil && cred.t.Expire.Before(time.Now().Add(time.Minute*5)) {
+		fmt.Printf("[creds] renewing token as it expires in %s\n", cred.t.Expire.Sub(time.Now()))
 		conn, err := grpc.Dial(cred.endpoints[0], cred.dialOpts...)
 		if err != nil {
 			return nil, err

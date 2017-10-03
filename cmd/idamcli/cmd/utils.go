@@ -2,14 +2,12 @@ package cmd
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/howeyc/gopass"
 
-	"github.com/homebot/core/urn"
 	"github.com/homebot/idam/client"
 	"github.com/homebot/idam/token"
 	"google.golang.org/grpc"
@@ -24,10 +22,7 @@ func conversation() (username, password, otp string, err error) {
 	}
 	user := string(line)
 
-	userName := urn.IdamIdentityResource.BuildURN("", user, user)
-	if !userName.Valid() {
-		return "", "", "", errors.New("invalid username")
-	}
+	userName := fmt.Sprintf("user:%s", user)
 
 	fmt.Printf("Password: ")
 	pass, err := gopass.GetPasswd()
@@ -41,7 +36,7 @@ func conversation() (username, password, otp string, err error) {
 		return "", "", "", err
 	}
 
-	return userName.String(), string(pass), string(otpb), nil
+	return userName, string(pass), string(otpb), nil
 }
 
 func newClient() (client.Client, error) {

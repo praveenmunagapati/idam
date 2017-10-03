@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/homebot/core/log"
@@ -25,8 +26,8 @@ type Manager struct {
 // New creates a new manager server
 func New(i idam.IdentityProvider, r idam.RoleProvider, p idam.PermissionProvider, opts ...Option) (*Manager, error) {
 	m := &Manager{
-		identities:  i,
 		roles:       r,
+		identities:  i,
 		permissions: p,
 	}
 
@@ -58,6 +59,47 @@ func New(i idam.IdentityProvider, r idam.RoleProvider, p idam.PermissionProvider
 // VerificationKey returns the JWT token verification key and implements policy.JWTKeyVerifier
 func (m *Manager) VerificationKey(issuer string, alg string) (interface{}, error) {
 	return m.signingCert, nil
+}
+
+func (m *Manager) IsResourceOwner(resource, identity string, permissions []string) (bool, error) {
+	if resource == identity {
+		return true, nil
+	}
+
+	if strings.HasPrefix(resource, idam.IdentityPrefixUser) || strings.HasPrefix(resource, idam.IdentityPrefixGroup) || strings.HasPrefix(resource, idam.IdentityPrefixSerivce) {
+		ident, err := m.identities.Get(resource)
+		if err != nil {
+			return false, err
+		}
+
+		if ident.Metadata().Creator == identity {
+			return true, nil
+		}
+	}
+
+	if strings.HasPrefix(resource, "role") {
+		role, err := m.roles.Get(resource)
+		if err != nil {
+			return false, err
+		}
+
+		if role.Creator == identity {
+			return true, nil
+		}
+	}
+
+	if strings.HasPrefix(resource, "permission") {
+		perm, err := m.permissions.Get(resource)
+		if err != nil {
+			return false, err
+		}
+
+		if perm.Creator == identity {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (m *Manager) getPermissions(i string) ([]idam.Permission, error) {

@@ -17,12 +17,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/howeyc/gopass"
 
-	"github.com/homebot/core/urn"
+	ui "github.com/homebot/core/cli"
 	"github.com/homebot/idam"
-	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 
 	"github.com/spf13/cobra"
 )
@@ -32,9 +32,9 @@ var (
 	cuOTP           bool
 	cuFirstName     string
 	cuLastName      string
-	cuMail          string
 	cuSeconaryMails []string
 	cuRoles         []string
+	cuGroups        []string
 )
 
 // createUserCmd represents the user command
@@ -48,29 +48,21 @@ var createUserCmd = &cobra.Command{
 
 		username := args[0]
 
-		if u := urn.URN(username); !u.Valid() {
-			username = urn.IdamIdentityResource.BuildURN("", username, username).String()
-		}
-
-		if cuMail == "" {
-			log.Fatal("--mail is mandatory")
-		}
-
 		if cuPassword == "" {
 			fmt.Printf("Password: ")
 			p1, err := gopass.GetPasswd()
 			if err != nil {
-				log.Fatal(err)
+				ui.Fatalf("", "%s", err)
 			}
 
 			fmt.Printf("Repeat password: ")
 			p2, err := gopass.GetPasswd()
 			if err != nil {
-				log.Fatal(err)
+				ui.Fatalf("", "%s, err")
 			}
 
 			if string(p1) != string(p2) {
-				log.Fatal("passwords do not match")
+				ui.Fatalf("", "Passwords do not match")
 			}
 
 			cuPassword = string(p1)
@@ -82,24 +74,32 @@ var createUserCmd = &cobra.Command{
 		}
 		defer cli.Close()
 
-		identity := idam.Identity{
-			Roles: cuRoles,
-			Name:  urn.URN(username).AccountID(),
-			Type:  idamV1.IdentityType_USER,
-			UserData: &idam.UserData{
-				FirstName:      cuFirstName,
-				LastName:       cuLastName,
-				PrimaryMail:    cuMail,
-				SecondaryMails: cuSeconaryMails,
-			},
+		for idx := range cuGroups {
+			cuGroups[idx] = fmt.Sprintf("group:%s", cuGroups[idx])
 		}
 
-		secret, err := cli.CreateIdentity(context.Background(), identity, cuPassword, cuOTP)
-		if err != nil {
-			log.Fatal(err)
-		}
+		identity := idam.NewUserIdentity(fmt.Sprintf("user:%s", username), "", cuRoles, cuGroups)
+		identity.FirstName = cuFirstName
+		identity.LastName = cuLastName
+		identity.MailAddresses = cuSeconaryMails
 
-		fmt.Printf("User %s created successfully\n", identity.URN().String())
+		var secret string
+
+		ui.Step("Creating user", func() error {
+			ui.RunFatal("Creating roles ...", func() error {
+				<-time.After(time.Second * 1)
+				return nil
+			})
+
+			ui.RunFatal("Creating identity", func() error {
+				var err error
+				secret, err = cli.CreateIdentity(context.Background(), identity, cuPassword, cuOTP)
+				return err
+			})
+
+			return nil
+		})
+
 		if cuOTP {
 			fmt.Printf("\nOne-Time-Secret: %s\n", secret)
 		}
@@ -113,7 +113,7 @@ func init() {
 	createUserCmd.Flags().StringVarP(&cuPassword, "password", "p", "", "Password for the new user account")
 	createUserCmd.Flags().StringVar(&cuFirstName, "first-name", "", "First name of the new user")
 	createUserCmd.Flags().StringVar(&cuLastName, "last-name", "", "Last name of the new user")
-	createUserCmd.Flags().StringVarP(&cuMail, "mail", "m", "", "Mail address for the new user")
 	createUserCmd.Flags().StringSliceVarP(&cuRoles, "role", "r", []string{}, "Roles for the new user")
-	createUserCmd.Flags().StringSliceVar(&cuSeconaryMails, "with-mail", []string{}, "Additional mail addresses for the user")
+	createUserCmd.Flags().StringSliceVar(&cuSeconaryMails, "mail", []string{}, "Additional mail addresses for the user")
+	createUserCmd.Flags().StringSliceVarP(&cuGroups, "group", "g", nil, "List of groups memberships for the new user")
 }

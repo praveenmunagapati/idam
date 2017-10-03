@@ -81,6 +81,7 @@ const (
 	AllowWriteIdentityAuth  = "idam.identity.writeAuth"
 	AllowDeleteIdentity     = "idam.identity.delete"
 	AllowAssignRoleIdentity = "idam.identity.assignRole"
+	AllowRenewTokenIdentity = "idam.identity.renewToken"
 )
 
 // AllBuiltInPermissions holds all permission strings built into IDAM
@@ -99,4 +100,5 @@ var AllBuiltInPermissions = []string{
 	AllowWriteIdentityAuth,
 	AllowDeleteIdentity,
 	AllowAssignRoleIdentity,
+	AllowRenewTokenIdentity,
 }

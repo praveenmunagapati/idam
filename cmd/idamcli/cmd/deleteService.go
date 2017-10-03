@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 
+	ui "github.com/homebot/core/cli"
 	"github.com/homebot/core/urn"
 
 	"github.com/spf13/cobra"
@@ -43,11 +44,9 @@ var deleteServiceCmd = &cobra.Command{
 		}
 		defer cli.Close()
 
-		if err := cli.DeleteIdentity(context.Background(), serviceName); err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf("Service %s deleted\n", serviceName)
+		ui.RunFatal(fmt.Sprintf("Deleting identity %q", serviceName), func() error {
+			return cli.DeleteIdentity(context.Background(), serviceName)
+		})
 	},
 }
 

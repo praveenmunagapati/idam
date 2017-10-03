@@ -14,9 +14,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"log"
 
 	"github.com/spf13/cobra"
 )
@@ -28,71 +26,16 @@ var (
 // listCmd represents the list command
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "Show identities registered at IDAM",
+	Short: "Show identities, roles and permissions registered at IDAM",
 	Run: func(cmd *cobra.Command, args []string) {
-		cli, err := newAdminClient()
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer cli.Close()
+		listIdentitiesCmd.Run(cmd, args)
 
-		response, err := cli.LookupIdentities(context.Background())
-		if err != nil {
-			log.Fatal(err)
-		}
+		fmt.Println()
 
-		for idx, i := range response {
-			identityType := "User-Account"
-
-			if i.IsService() {
-				identityType = "Service-Account"
-			}
-
-			if !listVerbose {
-				fmt.Printf("%s\t%s\t%d groups\n", i.Name, identityType, len(i.Roles))
-			} else {
-				fmt.Printf("%s\n", i.URN().String())
-				fmt.Printf("\t%s\n", identityType)
-				fmt.Printf("\tName: %s\n", i.Name)
-
-				if len(i.Roles) > 0 {
-					fmt.Printf("\tRoles:\n")
-					for _, r := range i.Roles {
-						fmt.Printf("\t\t%s\n", r)
-					}
-				} else {
-					fmt.Printf("\tRoles: no roles assigned\n")
-				}
-
-				if i.IsUser() && i.UserData != nil {
-					if i.UserData.PrimaryMail != "" {
-						fmt.Printf("\tMail: %s\n", i.UserData.PrimaryMail)
-					}
-					if i.UserData.FirstName != "" {
-						fmt.Printf("\tFirst-Name: %s\n", i.UserData.FirstName)
-					}
-					if i.UserData.LastName != "" {
-						fmt.Printf("\tLast-Name: %s\n", i.UserData.LastName)
-					}
-					if len(i.UserData.SecondaryMails) > 0 {
-						fmt.Printf("\tAdditional-Mail-Addresses:\n")
-
-						for _, m := range i.UserData.SecondaryMails {
-							fmt.Printf("\t\t%s\n", m)
-						}
-					}
-				}
-			}
-
-			if idx != len(response)-1 && listVerbose {
-				fmt.Printf("\n")
-			}
-		}
+		listRolesCmd.Run(cmd, args)
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(listCmd)
-
-	listCmd.Flags().BoolVarP(&listVerbose, "verbose", "v", false, "Display detailed information for identities")
 }

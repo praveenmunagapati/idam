@@ -116,6 +116,17 @@ func (provider *IdentityProvider) Delete(name string) error {
 		}
 	}
 
+	if idam.IsGroup(del) {
+		for _, i := range provider.identities {
+			if idam.HasGroup(i, del.AccountName()) {
+				idam.DeleteGroup(i, del.AccountName())
+				if _, err := provider.update(i); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -124,6 +135,10 @@ func (provider *IdentityProvider) Update(i idam.Identity) (idam.Identity, error)
 	provider.lock.Lock()
 	defer provider.lock.Unlock()
 
+	return provider.update(i)
+}
+
+func (provider *IdentityProvider) update(i idam.Identity) (idam.Identity, error) {
 	original, ok := provider.getIdentity(i.AccountName())
 	if !ok {
 		return nil, idam.ErrUnknownIdentity

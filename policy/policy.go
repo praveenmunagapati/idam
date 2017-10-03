@@ -91,6 +91,13 @@ func NewEnforcer(files ...string) (*Enforcer, error) {
 	return e, nil
 }
 
+func (e *Enforcer) ServerOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.StreamInterceptor(e.StreamInterceptor),
+		grpc.UnaryInterceptor(e.UnaryInterceptor),
+	}
+}
+
 // UnaryInterceptor inspects unary RPC calls and enforces HomeBot API policies attached
 // to the service definition
 func (e *Enforcer) UnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -132,7 +139,7 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 	policies := e.methods[methodName]
 
 	if len(policies) == 0 {
-		log.Printf("no policies to enforce for %q\n", methodName)
+		log.Printf("%s: no policies definied; granting access\n", methodName)
 		return ctx, nil
 	}
 
@@ -151,6 +158,7 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 	// Check if there's a policy allowing all authenticated users
 	for _, p := range policies {
 		if p.AllowAuthenticated {
+			log.Printf("%s: granting access to %s: allow-authenticated\n", methodName, jwt.Name)
 			return ctx, nil
 		}
 	}
@@ -160,9 +168,17 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 		permissions := jwt.Permissions
 
 		if p.OwnerException != nil {
-			resource, ok := getProtoField(req, p.OwnerException.ResourceNameField)
-			if !ok {
-				return ctx, errors.New("message does not contain name field")
+			var resource string
+
+			if p.OwnerException.ResourceNameField == "{token}" {
+				resource = jwt.Name
+			} else {
+				var ok bool
+
+				resource, ok = getProtoField(req, p.OwnerException.ResourceNameField)
+				if !ok {
+					return ctx, errors.New("message does not contain name field")
+				}
 			}
 
 			ok, err := s.IsResourceOwner(resource, jwt.Name, jwt.Permissions)
@@ -171,6 +187,11 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 			}
 
 			if ok {
+				if p.OwnerException.AlwaysAllow {
+					log.Printf("%s: granting access to %s: allow-owner\n", methodName, jwt.Name)
+
+					return ctx, nil
+				}
 				if p.AllowAuthenticated {
 					continue
 				}
@@ -191,6 +212,7 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 		}
 	}
 
+	log.Printf("%s: granting access to %s: all policies ok\n", methodName, jwt.Name)
 	return ctx, nil
 }
 
@@ -225,18 +247,23 @@ func (e *Enforcer) buildPolicies(files []string) error {
 		pkgName := fd.GetPackage()
 
 		for _, svc := range fd.Service {
+			svcPolicies, err := buildServicePolicies(svc)
+			if err != nil {
+				return err
+			}
+
 			svcName := fmt.Sprintf("%s.%s", pkgName, svc.GetName())
 
 			for _, method := range svc.Method {
-				methodName := fmt.Sprintf("%s/%s", svcName, method.GetName())
+				methodName := fmt.Sprintf("/%s/%s", svcName, method.GetName())
 
 				policies, err := buildMethodPolicies(method)
 				if err != nil {
 					return err
 				}
 
-				if len(policies) > 0 {
-					e.methods[methodName] = policies
+				if len(policies) > 0 || len(svcPolicies) > 0 {
+					e.methods[methodName] = append(svcPolicies, policies...)
 				}
 			}
 		}
@@ -245,7 +272,7 @@ func (e *Enforcer) buildPolicies(files []string) error {
 	return nil
 }
 
-func buildMethodPolicies(m *protobuf.MethodDescriptorProto) ([]Policy, error) {
+func buildServicePolicies(m *protobuf.ServiceDescriptorProto) ([]Policy, error) {
 	options := m.GetOptions()
 
 	if options != nil {
@@ -254,6 +281,48 @@ func buildMethodPolicies(m *protobuf.MethodDescriptorProto) ([]Policy, error) {
 			var policies []Policy
 
 			for _, polpb := range protoPolicies {
+				if polpb.AllowAll {
+					return nil, nil
+				}
+
+				pol := Policy{
+					RequiredPermissions: polpb.GetPermissions(),
+					AllowAuthenticated:  polpb.GetAllowAuthenticated(),
+				}
+
+				if owner := polpb.GetIfOwner(); owner != nil {
+					pol.OwnerException = &OwnerException{
+						AlwaysAllow:       owner.GetAllow(),
+						GrantPermissions:  owner.GetGrantPermissions(),
+						ResourceNameField: owner.GetResource(),
+					}
+				}
+
+				policies = append(policies, pol)
+			}
+
+			return policies, nil
+		} else if err == nil && !ok {
+			return nil, errors.New("invalid extension type")
+		}
+	}
+
+	return nil, nil
+}
+
+func buildMethodPolicies(m *protobuf.MethodDescriptorProto) ([]Policy, error) {
+	options := m.GetOptions()
+
+	if options != nil {
+		extension, err := proto.GetExtension(options, homebot.E_Policy)
+		if protoPolicies, ok := extension.([]*idamPolicy.PolicyRule); err == nil && ok {
+			var policies []Policy
+
+			for _, polpb := range protoPolicies {
+				if polpb.AllowAll {
+					return nil, nil
+				}
+
 				pol := Policy{
 					RequiredPermissions: polpb.GetPermissions(),
 					AllowAuthenticated:  polpb.GetAllowAuthenticated(),

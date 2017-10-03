@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/homebot/idam"
 	"github.com/spf13/cobra"
 )
 
@@ -37,39 +38,49 @@ var profileCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		identityType := "user"
+		identityType := "service"
 
-		if i.IsService() {
-			identityType = "service"
+		switch i.(type) {
+		case *idam.User:
+			identityType = "user"
+		case *idam.Group:
+			identityType = "group"
 		}
 
-		fmt.Printf("%s\n", i.URN().String())
-		fmt.Printf("\tName: %s\n", i.Name)
+		fmt.Printf("%s\n", i.AccountName())
 		fmt.Printf("\tType: %s\n", identityType)
 
-		if len(i.Roles) > 0 {
+		if len(i.Roles()) > 0 {
 			fmt.Printf("\tRoles:\n")
-			for _, r := range i.Roles {
+			for _, r := range i.Roles() {
 				fmt.Printf("\t\t%s\n", r)
 			}
 		} else {
 			fmt.Printf("\tRoles: no roles assigned\n")
 		}
 
-		if i.IsUser() && i.UserData != nil {
-			if i.UserData.PrimaryMail != "" {
-				fmt.Printf("\tMail: %s\n", i.UserData.PrimaryMail)
+		if len(i.Groups()) > 0 {
+			fmt.Printf("\tGroups:\n")
+			for _, r := range i.Groups() {
+				fmt.Printf("\t\t%s\n", r)
 			}
-			if i.UserData.FirstName != "" {
-				fmt.Printf("\tFirst-Name: %s\n", i.UserData.FirstName)
+		} else {
+			fmt.Printf("\tGroups: no group memberships\n")
+		}
+
+		if idam.IsUser(i) {
+			user := i.(*idam.User)
+
+			if user.FirstName != "" {
+				fmt.Printf("\tFirst-Name: %s\n", user.FirstName)
 			}
-			if i.UserData.LastName != "" {
-				fmt.Printf("\tLast-Name: %s\n", i.UserData.LastName)
+			if user.LastName != "" {
+				fmt.Printf("\tLast-Name: %s\n", user.LastName)
 			}
-			if len(i.UserData.SecondaryMails) > 0 {
+			if len(user.MailAddresses) > 0 {
 				fmt.Printf("\tAdditional-Mail-Addresses:\n")
 
-				for _, m := range i.UserData.SecondaryMails {
+				for _, m := range user.MailAddresses {
 					fmt.Printf("\t\t%s\n", m)
 				}
 			}

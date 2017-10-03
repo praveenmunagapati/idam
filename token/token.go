@@ -239,7 +239,7 @@ type KeyProviderFunc func(issuer string, alg string) (interface{}, error)
 func FromMetadata(ctx context.Context, keyFn KeyProviderFunc) (*Token, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return nil, errors.New("missing authorization")
+		return nil, errors.New("missing context")
 	}
 
 	header, ok := md["Authorization"]

@@ -359,7 +359,7 @@ func StripIdentityPrefix(i Identity) (string, error) {
 // StripIdentityNamePrefix returns the real name of the identity by removing
 // the identities type prefix from the account name
 func StripIdentityNamePrefix(i string) (string, error) {
-	parts := strings.Split(i, ".")
+	parts := strings.Split(i, ":")
 
 	if len(parts) < 2 {
 		return "", ErrInvalidPrefix
@@ -369,7 +369,7 @@ func StripIdentityNamePrefix(i string) (string, error) {
 		return "", ErrInvalidPrefix
 	}
 
-	return strings.Join(parts[1:], "."), nil
+	return strings.Join(parts[1:], ":"), nil
 }
 
 // DeleteGroup deletes a group from an identity

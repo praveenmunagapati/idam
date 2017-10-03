@@ -3,8 +3,8 @@ package client
 import (
 	"context"
 
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/homebot/idam"
-	homebotApi "github.com/homebot/protobuf/pkg/api"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"google.golang.org/grpc"
 )
@@ -16,7 +16,7 @@ type Client interface {
 
 	// GetProfile returns the identity profile for the currently authenticated
 	// identity
-	GetProfile(ctx context.Context) (*idam.Identity, error)
+	GetProfile(ctx context.Context) (idam.Identity, error)
 
 	// Change2FA changes the identities two-factor-authentication settings
 	// If 2FA should be disabled, the current OTP needs to be passed. If 2FA
@@ -24,7 +24,7 @@ type Client interface {
 	Change2FA(ctx context.Context, enabled bool, currentOTP string) (string, error)
 
 	// SetUserData updates the current user settings
-	SetUserData(ctx context.Context, userData idam.UserData) error
+	SetUserData(ctx context.Context, first, last, mail string, mails []string) error
 
 	// Conn returns the underlying grpc client connection
 	Conn() *grpc.ClientConn
@@ -51,10 +51,10 @@ type AdminClient interface {
 	LookupIdentities(ctx context.Context) ([]idam.Identity, error)
 
 	// CreateRole creates a new role
-	CreateRole(ctx context.Context, role string) error
+	CreateRole(ctx context.Context, role string, permissions []string) error
 
 	// ListRoles lists available roles
-	ListRoles(ctx context.Context) ([]string, error)
+	ListRoles(ctx context.Context) ([]idam.Role, error)
 
 	// DeleteRole deletes a role from the server
 	DeleteRole(ctx context.Context, role string) error
@@ -122,16 +122,16 @@ func (cli *client) ChangePassword(ctx context.Context, oldPwd, newPwd string) er
 }
 
 // GetProfile returns the profile for the currently authenticated identity
-func (cli *client) GetProfile(ctx context.Context) (*idam.Identity, error) {
+func (cli *client) GetProfile(ctx context.Context) (idam.Identity, error) {
 	client := idamV1.NewProfileClient(cli.conn)
 
-	res, err := client.GetProfile(ctx, &homebotApi.Empty{})
+	res, err := client.GetProfile(ctx, &empty.Empty{})
 	if err != nil {
 		return nil, err
 	}
 
-	identity := idam.IdentityFromProto(res)
-	if err := identity.Valid(); err != nil {
+	identity, err := idam.IdentityFromProto(res)
+	if err != nil {
 		return identity, err
 	}
 
@@ -139,14 +139,14 @@ func (cli *client) GetProfile(ctx context.Context) (*idam.Identity, error) {
 }
 
 // SetUserData updates the users profile
-func (cli *client) SetUserData(ctx context.Context, data idam.UserData) error {
+func (cli *client) SetUserData(ctx context.Context, first, last, mail string, mails []string) error {
 	client := idamV1.NewProfileClient(cli.conn)
 
 	_, err := client.SetUserData(ctx, &idamV1.UserData{
-		EmailAddress:           data.PrimaryMail,
-		SecondaryMailAddresses: data.SecondaryMails,
-		FirstName:              data.FirstName,
-		LastName:               data.LastName,
+		PrimaryMail:     mail,
+		AdditionalMails: mails,
+		FirstName:       first,
+		LastName:        last,
 	})
 	if err != nil {
 		return err
@@ -212,10 +212,14 @@ func NewAdminClient(endpoint string, cred CredentialsFunc, opts ...grpc.DialOpti
 }
 
 func (cli *adminClient) CreateIdentity(ctx context.Context, identity idam.Identity, password string, with2FA bool) (string, error) {
-	client := idamV1.NewAdminClient(cli.conn)
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+	ipb, err := idam.IdentityProto(identity)
+	if err != nil {
+		return "", err
+	}
 
 	res, err := client.CreateIdentity(ctx, &idamV1.CreateIdentityRequest{
-		Identity:  identity.ToProtobuf(),
+		Identity:  ipb,
 		Password:  password,
 		Enable2FA: with2FA,
 	})
@@ -227,10 +231,10 @@ func (cli *adminClient) CreateIdentity(ctx context.Context, identity idam.Identi
 }
 
 func (cli *adminClient) DeleteIdentity(ctx context.Context, name string) error {
-	client := idamV1.NewAdminClient(cli.conn)
+	client := idamV1.NewIdentityServiceClient(cli.conn)
 
 	if _, err := client.DeleteIdentity(ctx, &idamV1.DeleteIdentityRequest{
-		Urn: name,
+		Name: name,
 	}); err != nil {
 		return err
 	}
@@ -239,10 +243,14 @@ func (cli *adminClient) DeleteIdentity(ctx context.Context, name string) error {
 }
 
 func (cli *adminClient) UpdateIdentity(ctx context.Context, identity idam.Identity) error {
-	client := idamV1.NewAdminClient(cli.conn)
+	client := idamV1.NewIdentityServiceClient(cli.conn)
 
+	ipb, err := idam.IdentityProto(identity)
+	if err != nil {
+		return err
+	}
 	if _, err := client.UpdateIdentity(ctx, &idamV1.UpdateIdentityRequest{
-		Identity: identity.ToProtobuf(),
+		Identity: ipb,
 	}); err != nil {
 		return err
 	}
@@ -251,7 +259,7 @@ func (cli *adminClient) UpdateIdentity(ctx context.Context, identity idam.Identi
 }
 
 func (cli *adminClient) LookupIdentities(ctx context.Context) ([]idam.Identity, error) {
-	client := idamV1.NewAdminClient(cli.conn)
+	client := idamV1.NewIdentityServiceClient(cli.conn)
 
 	res, err := client.LookupIdentities(ctx, &idamV1.LookupRequest{})
 	if err != nil {
@@ -261,78 +269,69 @@ func (cli *adminClient) LookupIdentities(ctx context.Context) ([]idam.Identity, 
 	var identities []idam.Identity
 
 	for _, ri := range res.GetIdentities() {
-		i := idam.IdentityFromProto(ri)
+		i, err := idam.IdentityFromProto(ri)
+		if err != nil {
+			continue
+		}
 		// TODO(ppacher): re-add Valid() check
-		identities = append(identities, *i)
+		identities = append(identities, i)
 	}
 
 	return identities, nil
 }
 
 // CreateRole creates a new role at the identitiy server
-func (cli *adminClient) CreateRole(ctx context.Context, role string) error {
-	client := idamV1.NewAdminClient(cli.conn)
+func (cli *adminClient) CreateRole(ctx context.Context, role string, perms []string) error {
+	client := idamV1.NewPermissionsClient(cli.conn)
 
-	if _, err := client.CreateRole(ctx, &idamV1.CreateRoleRequest{
-		RoleName: role,
-	}); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := client.CreateRole(ctx, &idamV1.CreateRoleRequest{
+		Role: &idamV1.Role{
+			Name:        role,
+			Permissions: perms,
+		},
+	})
+	return err
 }
 
 // DeleteRole deletes a role from the IDAM server. It will also unassign the role
 // from all identities
 func (cli *adminClient) DeleteRole(ctx context.Context, role string) error {
-	client := idamV1.NewAdminClient(cli.conn)
+	client := idamV1.NewPermissionsClient(cli.conn)
 
-	if _, err := client.DeleteRole(ctx, &idamV1.DeleteRoleRequest{
-		RoleName: role,
-	}); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := client.DeleteRole(ctx, &idamV1.DeleteRoleRequest{
+		Name: role,
+	})
+	return err
 }
 
 // ListRoles returns a list of roles registered at the IDAM server
-func (cli *adminClient) ListRoles(ctx context.Context) ([]string, error) {
-	client := idamV1.NewAdminClient(cli.conn)
+func (cli *adminClient) ListRoles(ctx context.Context) ([]idam.Role, error) {
+	client := idamV1.NewPermissionsClient(cli.conn)
 
-	res, err := client.ListRoles(ctx, &idamV1.RoleLookupRequest{})
+	res, err := client.ListRole(ctx, &idamV1.ListRoleRequest{})
 	if err != nil {
 		return nil, err
 	}
 
-	return res.GetRoleNames(), nil
+	var roles []idam.Role
+	for _, r := range res.GetRoles() {
+		rn, err := idam.RoleFromProto(r)
+		if err != nil {
+			return nil, err
+		}
+
+		roles = append(roles, *rn)
+	}
+	return roles, nil
 }
 
 // AssignRole assigns one or more roles to an idenity
 func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles string) error {
-	client := idamV1.NewAdminClient(cli.conn)
-
-	if _, err := client.AssignRole(ctx, &idamV1.AssignRoleRequest{
-		Identity: identity,
-		RoleName: roles,
-	}); err != nil {
-		return err
-	}
-
 	return nil
 }
 
 // UnassignRole removes one ore more roles from an identity
 func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles string) error {
-	client := idamV1.NewAdminClient(cli.conn)
-
-	if _, err := client.UnassignRole(ctx, &idamV1.UnassignRoleRequest{
-		Identity: identity,
-		RoleName: roles,
-	}); err != nil {
-		return err
-	}
-
 	return nil
 }
 

@@ -18,8 +18,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/homebot/core/urn"
-
+	ui "github.com/homebot/core/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -32,10 +31,7 @@ var deleteUserCmd = &cobra.Command{
 			log.Fatal("invalid number of arguments")
 		}
 
-		username := args[0]
-		if u := urn.URN(username); !u.Valid() {
-			username = urn.IdamIdentityResource.BuildURN("", username, username).String()
-		}
+		username := fmt.Sprintf("user:%s", args[0])
 
 		cli, err := newAdminClient()
 		if err != nil {
@@ -43,11 +39,10 @@ var deleteUserCmd = &cobra.Command{
 		}
 		defer cli.Close()
 
-		if err := cli.DeleteIdentity(context.Background(), username); err != nil {
-			log.Fatal(err)
-		}
+		ui.RunFatal(fmt.Sprintf("Deleting identity %q", username), func() error {
+			return cli.DeleteIdentity(context.Background(), username)
+		})
 
-		fmt.Printf("User %s deleted\n", username)
 	},
 }
 
