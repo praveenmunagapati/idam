@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/homebot/idam/token"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
@@ -27,12 +28,18 @@ var (
 	cfgFile    string
 	jwtFile    string
 	idamServer string
+	noColor    bool
 )
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   "idamcli",
 	Short: "HomeBot Identity & Access Mangement client",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if noColor {
+			color.NoColor = true
+		}
+	},
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -53,6 +60,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.idamcli.yaml)")
 	RootCmd.PersistentFlags().StringVarP(&jwtFile, "jwt", "t", token.DefaultTokenFile, "Path to JWT token file")
 	RootCmd.PersistentFlags().StringVarP(&idamServer, "server", "s", "localhost:50053", "Address of the IDAM server")
+	RootCmd.PersistentFlags().BoolVarP(&noColor, "no-color", "N", false, "Disable color output")
 }
 
 // initConfig reads in config file and ENV variables if set.
