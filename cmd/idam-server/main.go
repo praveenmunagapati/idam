@@ -57,6 +57,9 @@ func main() {
 
 	if len(list) == 0 {
 		user := idam.NewUserIdentity("user:admin", "", []string{"idam-admin"}, nil)
+		user.FirstName = "Admin"
+		user.LastName = "Mustermann"
+		user.MailAddresses = []string{"admin@example.com"}
 
 		pass, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
 		if err != nil {
