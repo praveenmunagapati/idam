@@ -17,12 +17,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// addCmd represents the add command
-var addCmd = &cobra.Command{
+// createCmd represents the add command
+var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new role, user or service account",
 }
 
 func init() {
-	RootCmd.AddCommand(addCmd)
+	RootCmd.AddCommand(createCmd)
 }

@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/homebot/idam"
@@ -38,6 +40,8 @@ type Client interface {
 
 // AdminClient is an IDAM administration client
 type AdminClient interface {
+	GetIdentity(ctx context.Context, name string) (idam.Identity, error)
+
 	// CreateIdentity creates a new identity
 	CreateIdentity(ctx context.Context, identity idam.Identity, password string, with2FA bool) (string, error)
 
@@ -64,6 +68,26 @@ type AdminClient interface {
 
 	// UnassignRole removes a role from an identity
 	UnassignRole(ctx context.Context, identity string, roles string) error
+
+	// CreatePermission creates a new permission at the IDAM server
+	CreatePermission(ctx context.Context, p string) (*idam.Permission, error)
+
+	// DeletePermission deletes a permission
+	DeletePermission(ctx context.Context, p string) error
+
+	// ListPermissions lists all permissions
+	ListPermissions(ctx context.Context) ([]*idam.Permission, error)
+
+	// ListRolePermissions lists all permissions
+	ListRolePermissions(ctx context.Context, role string) ([]*idam.Permission, error)
+
+	AssignPermission(ctx context.Context, permission, role string) error
+
+	UnassignPermission(ctx context.Context, permission, role string) error
+
+	AddIdentityToGroup(ctx context.Context, identity, group string) error
+
+	DeleteIdentityFromGroup(ctx context.Context, identity, group string) error
 
 	// Conn returns the underlying gRPC client connection
 	Conn() *grpc.ClientConn
@@ -326,12 +350,185 @@ func (cli *adminClient) ListRoles(ctx context.Context) ([]idam.Role, error) {
 }
 
 // AssignRole assigns one or more roles to an idenity
-func (cli *adminClient) AssignRole(ctx context.Context, identity string, roles string) error {
+func (cli *adminClient) AssignRole(ctx context.Context, identity string, role string) error {
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+
+	if _, err := client.AssignRole(ctx, &idamV1.AssignRoleRequest{
+		Name: identity,
+		Role: role,
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // UnassignRole removes one ore more roles from an identity
-func (cli *adminClient) UnassignRole(ctx context.Context, identity string, roles string) error {
+func (cli *adminClient) UnassignRole(ctx context.Context, identity string, role string) error {
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+
+	if _, err := client.RemoveRole(ctx, &idamV1.UnassignRoleRequest{
+		Name: identity,
+		Role: role,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) CreatePermission(ctx context.Context, p string) (*idam.Permission, error) {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	res, err := client.CreatePermission(ctx, &idamV1.CreatePermissionRequest{
+		Permission: p,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ret, err := idam.PermissionFromProto(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func (cli *adminClient) DeletePermission(ctx context.Context, p string) error {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	if _, err := client.DeletePermission(ctx, &idamV1.DeletePermissionRequest{
+		Name: p,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) ListPermissions(ctx context.Context) ([]*idam.Permission, error) {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	res, err := client.ListPermissions(ctx, &idamV1.ListPermissionRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	var ret []*idam.Permission
+
+	for _, pb := range res.GetPermissions() {
+		r, err := idam.PermissionFromProto(pb)
+		if err != nil {
+			return nil, err
+		}
+
+		ret = append(ret, r)
+	}
+
+	return ret, nil
+}
+
+func (cli *adminClient) ListRolePermissions(ctx context.Context, role string) ([]*idam.Permission, error) {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	res, err := client.ListPermissions(ctx, &idamV1.ListPermissionRequest{
+		Role: role,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var ret []*idam.Permission
+
+	for _, pb := range res.GetPermissions() {
+		r, err := idam.PermissionFromProto(pb)
+		if err != nil {
+			return nil, err
+		}
+
+		ret = append(ret, r)
+	}
+
+	return ret, nil
+}
+
+func (cli *adminClient) AssignPermission(ctx context.Context, permission string, role string) error {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	if _, err := client.AssignPermission(ctx, &idamV1.AssignPermissionRequest{
+		Permission: permission,
+		Role:       role,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) UnassignPermission(ctx context.Context, permission string, role string) error {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	if _, err := client.RemoveGrantedPermission(ctx, &idamV1.RemoveGrantedPermissionRequest{
+		Permission: permission,
+		Role:       role,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) GetIdentity(ctx context.Context, name string) (idam.Identity, error) {
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+
+	i, err := client.GetIdentity(ctx, &idamV1.GetIdentityRequest{
+		Name: name,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	identity, err := idam.IdentityFromProto(i)
+	if err != nil {
+		return nil, err
+	}
+
+	return identity, nil
+}
+
+func (cli *adminClient) AddIdentityToGroup(ctx context.Context, identity, group string) error {
+	if !strings.HasPrefix(group, idam.IdentityPrefixGroup) {
+		return errors.New("can only add an identity to a group")
+	}
+
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+
+	if _, err := client.AddIdentityToGroup(ctx, &idamV1.AddIdentityToGroupRequest{
+		Name:  identity,
+		Group: group,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cli *adminClient) DeleteIdentityFromGroup(ctx context.Context, identity, group string) error {
+	if !strings.HasPrefix(group, idam.IdentityPrefixGroup) {
+		return errors.New("can only delete an identity from a group")
+	}
+
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+
+	if _, err := client.DeleteIdentityFromGroup(ctx, &idamV1.DeleteIdentityFromGroupRequest{
+		Name:  identity,
+		Group: group,
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }
 

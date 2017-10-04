@@ -115,12 +115,171 @@ func (m *Manager) LookupIdentities(ctx context.Context, in *idamV1.LookupRequest
 	}, nil
 }
 
+func (m *Manager) GetIdentity(ctx context.Context, in *idamV1.GetIdentityRequest) (*idamV1.Identity, error) {
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.IdentityProto(i)
+	if err != nil {
+		return nil, err
+	}
+
+	return pb, nil
+}
+
+func (m *Manager) ListIdentityGroups(ctx context.Context, in *idamV1.ListIdentityGroupsRequest) (*idamV1.ListIdentityGroupResponse, error) {
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	var groups []*idamV1.Identity
+
+	for _, g := range i.Groups() {
+		gi, err := m.identities.Get(g)
+		if err != nil {
+			return nil, err
+		}
+
+		pb, err := idam.IdentityProto(gi)
+		if err != nil {
+			return nil, err
+		}
+
+		groups = append(groups, pb)
+	}
+
+	return &idamV1.ListIdentityGroupResponse{
+		Groups: groups,
+	}, nil
+}
+
+func (m *Manager) AddIdentityToGroup(ctx context.Context, in *idamV1.AddIdentityToGroupRequest) (*idamV1.Identity, error) {
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := m.identities.Get(in.GetGroup()); err != nil {
+		return nil, err
+	}
+
+	idam.AddGroup(i, in.GetGroup())
+
+	upd, err := m.identities.Update(i)
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.IdentityProto(upd)
+	if err != nil {
+		return nil, err
+	}
+
+	return pb, nil
+}
+
+func (m *Manager) DeleteIdentityFromGroup(ctx context.Context, in *idamV1.DeleteIdentityFromGroupRequest) (*idamV1.Identity, error) {
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := m.identities.Get(in.GetGroup()); err != nil {
+		return nil, err
+	}
+
+	idam.DeleteGroup(i, in.GetGroup())
+
+	upd, err := m.identities.Update(i)
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.IdentityProto(upd)
+	if err != nil {
+		return nil, err
+	}
+
+	return pb, nil
+}
+
 // AssignRole implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) (*idamV1.AssignRoleResponse, error) {
-	return nil, nil
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := m.roles.Get(in.GetRole()); err != nil {
+		return nil, err
+	}
+
+	if idam.HasRole(i, in.GetRole()) {
+		pb, err := idam.IdentityProto(i)
+		if err != nil {
+			return nil, err
+		}
+
+		return &idamV1.AssignRoleResponse{
+			Identity: pb,
+		}, nil
+	}
+
+	idam.AddRole(i, in.GetRole())
+
+	upd, err := m.identities.Update(i)
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.IdentityProto(upd)
+	if err != nil {
+		return nil, err
+	}
+
+	return &idamV1.AssignRoleResponse{
+		Identity: pb,
+	}, nil
 }
 
 // RemoveRole implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) RemoveRole(ctx context.Context, in *idamV1.UnassignRoleRequest) (*idamV1.UnassignRoleResponse, error) {
-	return nil, nil
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := m.roles.Get(in.GetRole()); err != nil {
+		return nil, err
+	}
+
+	if !idam.HasRole(i, in.GetRole()) {
+		pb, err := idam.IdentityProto(i)
+		if err != nil {
+			return nil, err
+		}
+
+		return &idamV1.UnassignRoleResponse{
+			Identity: pb,
+		}, nil
+	}
+
+	idam.DeleteRole(i, in.GetRole())
+
+	upd, err := m.identities.Update(i)
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.IdentityProto(upd)
+	if err != nil {
+		return nil, err
+	}
+
+	return &idamV1.UnassignRoleResponse{
+		Identity: pb,
+	}, nil
 }

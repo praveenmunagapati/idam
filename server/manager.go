@@ -126,6 +126,29 @@ func (m *Manager) getPermissions(i string) ([]idam.Permission, error) {
 		}
 	}
 
+	// now collect group permissions
+	for _, g := range identity.Groups() {
+		groupPermissions, err := m.getPermissions(g)
+		if err != nil {
+			return nil, err
+		}
+
+		res = append(res, groupPermissions...)
+	}
+
+	var distinct []idam.Permission
+
+L:
+	for _, p := range res {
+		for _, c := range distinct {
+			if p.Name == c.Name {
+				continue L
+			}
+		}
+
+		distinct = append(distinct, p)
+	}
+
 	return res, nil
 }
 
