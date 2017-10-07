@@ -31,31 +31,42 @@ func (m *Manager) CreatePermission(ctx context.Context, in *idamV1.CreatePermiss
 		return nil, err
 	}
 
+	logger := m.log.WithIdentity(i.AccountName()).WithResource(in.GetPermission())
+
 	if _, err := m.permissions.Get(in.GetPermission()); err == nil {
+		logger.Errorf("permission already created")
 		return nil, errors.New("permission exists")
 	}
 
 	p, err := m.permissions.New(in.GetPermission(), i.AccountName())
 	if err != nil {
+		logger.Errorf("failed to create permission: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.PermissionProto(*p)
 	if err != nil {
+		logger.Errorf("failed to convert permission: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("permission created")
 
 	return pb, nil
 }
 
 // DeletePermission implements homebot/api/idam/v1/permissions.proto:Permission
 func (m *Manager) DeletePermission(ctx context.Context, in *idamV1.DeletePermissionRequest) (*empty.Empty, error) {
+	logger := m.getLogger(ctx).WithResource(in.GetName())
+
 	if _, err := m.permissions.Get(in.GetName()); err != nil {
+		logger.Errorf("permission error: %s", err)
 		return nil, err
 	}
 
 	roles, err := m.roles.List()
 	if err != nil {
+		logger.Errorf("failed to get roles: %s", err)
 		return nil, err
 	}
 
@@ -63,14 +74,20 @@ func (m *Manager) DeletePermission(ctx context.Context, in *idamV1.DeletePermiss
 		if r.HasPermission(in.GetName()) {
 			r.DeletePermission(in.GetName())
 			if _, err := m.roles.Update(r); err != nil {
+				logger.Errorf("failed to delete permission from role %q: %s", r.Name, err)
 				return nil, err
 			}
+
+			logger.Infof("removed permission from role %q", r.Name)
 		}
 	}
 
 	if err := m.permissions.Delete(in.GetName()); err != nil {
+		logger.Errorf("failed to delete permission: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("permission deleted")
 
 	return &empty.Empty{}, nil
 }
@@ -129,17 +146,22 @@ func (m *Manager) GetRole(ctx context.Context, in *idamV1.GetRoleRequest) (*idam
 func (m *Manager) CreateRole(ctx context.Context, in *idamV1.CreateRoleRequest) (*idamV1.Role, error) {
 	i, _, err := m.identityFromCtx(ctx)
 	if err != nil {
+		m.log.Errorf("failed to get identity: %s", err)
 		return nil, err
 	}
 
 	if in.GetRole() == nil {
+		m.log.Errorf("invalid request")
 		return nil, errors.New("invalid request")
 	}
+
+	logger := m.log.WithIdentity(i.AccountName()).WithResource(in.GetRole().GetName())
 
 	name := in.GetRole().GetName()
 	permissions := in.GetRole().GetPermissions()
 
 	if _, err := m.roles.Get(name); err == nil {
+		logger.Errorf("role already created")
 		return nil, errors.New("role exists")
 	}
 
@@ -149,25 +171,33 @@ func (m *Manager) CreateRole(ctx context.Context, in *idamV1.CreateRoleRequest) 
 		Creator:     i.AccountName(),
 	})
 	if err != nil {
+		logger.Errorf("failed to create role: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.RoleProto(role)
 	if err != nil {
+		logger.Errorf("failed to convert role: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("role created")
 
 	return pb, nil
 }
 
 // DeleteRole implements homebot/api/idam/v1/permissions.proto:Permission
 func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) (*empty.Empty, error) {
+	logger := m.getLogger(ctx).WithResource(in.GetName())
+
 	if _, err := m.roles.Get(in.GetName()); err != nil {
+		logger.Errorf("role error: %s", err)
 		return nil, err
 	}
 
 	identities, err := m.identities.List()
 	if err != nil {
+		logger.Errorf("failed to get identities: %s", err)
 		return nil, err
 	}
 
@@ -175,14 +205,20 @@ func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) 
 		if idam.HasRole(i, in.GetName()) {
 			idam.DeleteRole(i, in.GetName())
 			if _, err := m.identities.Update(i); err != nil {
+				logger.Errorf("failed to delete role from identity %q: %s", i.AccountName(), err)
 				return nil, err
 			}
+
+			logger.Infof("deleted role from identity %q", i.AccountName())
 		}
 	}
 
 	if err := m.roles.Delete(in.GetName()); err != nil {
+		logger.Errorf("failed to delete role: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("role deleted")
 
 	return &empty.Empty{}, nil
 }
@@ -190,20 +226,32 @@ func (m *Manager) DeleteRole(ctx context.Context, in *idamV1.DeleteRoleRequest) 
 // UpdateRole implements homebot/api/idam/v1/permissions.proto:Permission
 func (m *Manager) UpdateRole(ctx context.Context, in *idamV1.UpdateRoleRequest) (*idamV1.Role, error) {
 	pb := in.GetRole()
+	if pb == nil {
+		m.log.Errorf("invalid request")
+		return nil, errors.New("invalid request")
+	}
+
+	logger := m.getLogger(ctx).WithResource(in.GetRole().Name)
+
 	role, err := idam.RoleFromProto(pb)
 	if err != nil {
+		logger.Errorf("failed to convert request: %s", err)
 		return nil, err
 	}
 
 	upd, err := m.roles.Update(role)
 	if err != nil {
+		logger.Errorf("failed to update role: %s", err)
 		return nil, err
 	}
 
 	updpb, err := idam.RoleProto(upd)
 	if err != nil {
+		logger.Errorf("failed to convert role: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("role updated")
 
 	return updpb, nil
 }
@@ -231,13 +279,17 @@ func (m *Manager) ListRole(ctx context.Context, in *idamV1.ListRoleRequest) (*id
 
 // AssignPermission implements homebot/api/idam/v1/permissions.proto:Permission
 func (m *Manager) AssignPermission(ctx context.Context, in *idamV1.AssignPermissionRequest) (*idamV1.Role, error) {
+	logger := m.getLogger(ctx).WithResource(in.GetRole())
+
 	role, err := m.roles.Get(in.GetRole())
 	if err != nil {
+		logger.Errorf("role error: %s", err)
 		return nil, err
 	}
 
 	perm, err := m.permissions.Get(in.GetPermission())
 	if err != nil {
+		logger.Errorf("permission error: %q: %s", in.GetPermission(), err)
 		return nil, err
 	}
 
@@ -245,26 +297,34 @@ func (m *Manager) AssignPermission(ctx context.Context, in *idamV1.AssignPermiss
 
 	upd, err := m.roles.Update(role)
 	if err != nil {
+		logger.Errorf("failed to update role: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.RoleProto(upd)
 	if err != nil {
+		logger.Errorf("failed to convert role: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("permission %q added", in.GetPermission())
 
 	return pb, nil
 }
 
 // RemoveGrantedPermission implements homebot/api/idam/v1/permissions.proto:Permission
 func (m *Manager) RemoveGrantedPermission(ctx context.Context, in *idamV1.RemoveGrantedPermissionRequest) (*idamV1.Role, error) {
+	logger := m.getLogger(ctx).WithResource(in.GetRole())
+
 	role, err := m.roles.Get(in.GetRole())
 	if err != nil {
+		logger.Errorf("role error: %s", err)
 		return nil, err
 	}
 
 	perm, err := m.permissions.Get(in.GetPermission())
 	if err != nil {
+		logger.Errorf("permission error: %q: %s", in.GetPermission(), err)
 		return nil, err
 	}
 
@@ -272,13 +332,17 @@ func (m *Manager) RemoveGrantedPermission(ctx context.Context, in *idamV1.Remove
 
 	upd, err := m.roles.Update(role)
 	if err != nil {
+		logger.Errorf("failed to update role: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.RoleProto(upd)
 	if err != nil {
+		logger.Errorf("failed to convert role: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("permission %q deleted", in.GetPermission())
 
 	return pb, nil
 }
