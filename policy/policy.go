@@ -233,6 +233,7 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 
 			ok, err := s.IsResourceOwner(resource, jwt.Name, jwt.Permissions)
 			if err != nil {
+				logger.Errorf("failed to determine resource owner for %q: %s", resource, err)
 				return ctx, err
 			}
 

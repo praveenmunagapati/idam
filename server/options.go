@@ -3,7 +3,7 @@ package server
 import (
 	"time"
 
-	"github.com/homebot/core/log"
+	"github.com/homebot/insight/logger"
 )
 
 // Option configures a new manager
@@ -20,7 +20,7 @@ func WithSharedKey(key string) Option {
 }
 
 // WithLogger configures the logger to use
-func WithLogger(l log.Logger) Option {
+func WithLogger(l logger.Logger) Option {
 	return func(m *Manager) error {
 		m.log = l
 		return nil

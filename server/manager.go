@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/homebot/core/log"
 	"github.com/homebot/idam"
+	"github.com/homebot/insight/logger"
 )
 
 // Manager implements the gRPC Identity Manager Server interface
@@ -20,7 +20,7 @@ type Manager struct {
 	signingCert   []byte
 	issuer        string
 	tokenDuration time.Duration
-	log           log.Logger
+	log           logger.Logger
 }
 
 // New creates a new manager server
@@ -50,7 +50,7 @@ func New(i idam.IdentityProvider, r idam.RoleProvider, p idam.PermissionProvider
 	}
 
 	if m.log == nil {
-		m.log = log.SimpleLogger{}
+		m.log = logger.NopLogger{}
 	}
 
 	return m, nil

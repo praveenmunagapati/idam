@@ -12,6 +12,7 @@ import (
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/token"
+	"github.com/homebot/insight/logger"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
@@ -147,4 +148,13 @@ func (m *Manager) identityFromCtx(ctx context.Context) (idam.Identity, *token.To
 	}
 
 	return i, t, nil
+}
+
+func (m *Manager) getLogger(ctx context.Context) logger.Logger {
+	i, _, err := m.identityFromCtx(ctx)
+	if err != nil {
+		return m.log
+	}
+
+	return m.log.WithIdentity(i.AccountName())
 }

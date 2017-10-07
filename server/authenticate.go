@@ -23,43 +23,54 @@ func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.L
 
 	identity, err := m.identities.Get(principal)
 	if err != nil {
+		m.log.Errorf("authentication failed: %s", err)
 		return nil, err
 	}
 
+	logger := m.log.WithIdentity(identity.AccountName())
+
 	if identity.Disabled() {
+		logger.Warnf("authentication denied. Idenitty is disabled")
 		return nil, errors.New("identity disabled")
 	}
 
 	hash, err := m.identities.GetPasswordHash(principal)
 	if err != nil {
+		logger.Errorf("authentication failed: %s", err)
 		return nil, err
 	}
 
 	secret, err := m.identities.Get2FASecret(principal)
 	if err != nil {
+		logger.Errorf("authentication failed: %s", err)
 		return nil, err
 	}
 
 	if err := idam.CheckPassword(hash, in.GetPassword()); err != nil {
+		logger.Warnf("authentication denied: %s", err)
 		return nil, err
 	}
 
 	if secret != "" {
 		if err := idam.Check2FA(secret, in.GetOneTimeSecret()); err != nil {
+			logger.Warnf("authentication denied: %s", err)
 			return nil, err
 		}
 	}
 
 	permissions, err := m.getPermissionNames(principal)
 	if err != nil {
+		logger.Errorf("authentication failed: %s", err)
 		return nil, err
 	}
 
 	newToken, err := token.New(identity.AccountName(), permissions, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
 	if err != nil {
+		logger.Errorf("authentication failed: %s", err)
 		return nil, err
 	}
 
+	logger.Infof("authentication succeeded. Token issued.")
 	return &idamV1.LoginResponse{
 		Token: newToken,
 	}, nil
@@ -67,30 +78,32 @@ func (m *Manager) Login(ctx context.Context, in *idamV1.LoginRequest) (*idamV1.L
 
 // Renew an authentication token when it is still valid
 func (m *Manager) Renew(ctx context.Context, in *idamV1.RenewTokenRequest) (*idamV1.RenewTokenResponse, error) {
-	auth, ok := policy.TokenFromContext(ctx)
-	if !ok || auth.Valid() != nil {
-		return nil, errors.New("token not valid")
-	}
-
-	identity, err := m.identities.Get(auth.Name)
+	identity, _, err := m.identityFromCtx(ctx)
 	if err != nil {
+		m.log.Errorf("cannot renew token: %s", err)
 		return nil, err
 	}
 
+	logger := m.log.WithIdentity(identity.AccountName())
+
 	if identity.Disabled() {
+		logger.Warnf("token renewal denied: identity disabled")
 		return nil, errors.New("identity disabled")
 	}
 
-	permissions, err := m.getPermissionNames(auth.Name)
+	permissions, err := m.getPermissionNames(identity.AccountName())
 	if err != nil {
+		logger.Errorf("token renewal failed: %s", err)
 		return nil, err
 	}
 
 	newToken, err := token.New(identity.AccountName(), permissions, m.issuer, time.Now().Add(m.tokenDuration), m.alg, bytes.NewReader(m.signingKey))
 	if err != nil {
+		logger.Errorf("token renewal failed: %s", err)
 		return nil, err
 	}
 
+	logger.Infof("token renewed successfully")
 	return &idamV1.RenewTokenResponse{
 		Token: newToken,
 	}, nil

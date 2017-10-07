@@ -80,7 +80,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srv, err := server.New(identities, roles, permissions, server.WithSharedKey("foobar"))
+	srv, err := server.New(identities, roles, permissions, server.WithSharedKey("foobar"), server.WithLogger(l))
 	if err != nil {
 		log.Fatal(err)
 	}
