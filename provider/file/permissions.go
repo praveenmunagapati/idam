@@ -4,10 +4,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/homebot/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
-
-// TODO(ppacher): actually persist permissions to files
 
 // PermissionProvider is a idam.PermissionProvider persisting permissions to a file
 type PermissionProvider struct {
@@ -20,9 +20,16 @@ type PermissionProvider struct {
 // NewPermissionProvider returns a new permission provder that persists permissions
 // to `file`
 func NewPermissionProvider(file string) idam.PermissionProvider {
-	return &PermissionProvider{
+	p := &PermissionProvider{
 		filename: file,
 	}
+
+	if err := p.readFromFile(); err != nil {
+		// TODO(ppacher) return error instead of panicing
+		panic(err)
+	}
+
+	return p
 }
 
 // New creates a new permission and implements idam.PermissionProvider
@@ -42,7 +49,7 @@ func (perm *PermissionProvider) New(spec, creator string) (*idam.Permission, err
 
 	perm.permissions = append(perm.permissions, p)
 
-	return copyPermission(p), nil
+	return copyPermission(p), perm.saveToFile()
 }
 
 // Delete deletes a permission and implements idam.PermissionProvider
@@ -64,7 +71,7 @@ func (perm *PermissionProvider) Delete(spec string) error {
 
 	perm.permissions = newPermissions
 
-	return nil
+	return perm.saveToFile()
 }
 
 // List lista all permissions stored at the provider and implements
@@ -104,6 +111,54 @@ func (perm *PermissionProvider) getPermission(spec string) (*idam.Permission, bo
 	}
 
 	return nil, false
+}
+
+func (perm *PermissionProvider) readFromFile() error {
+	var data [][]byte
+
+	if err := readFile(perm.filename, &data); err != nil {
+		return err
+	}
+
+	var permissions []*idam.Permission
+
+	for _, blob := range data {
+		var pb idamV1.Permission
+
+		if err := proto.Unmarshal(blob, &pb); err != nil {
+			return err
+		}
+
+		p, err := idam.PermissionFromProto(&pb)
+		if err != nil {
+			return err
+		}
+
+		permissions = append(permissions, p)
+	}
+
+	perm.permissions = permissions
+	return nil
+}
+
+func (perm *PermissionProvider) saveToFile() error {
+	var data [][]byte
+
+	for _, d := range perm.permissions {
+		pb, err := idam.PermissionProto(*d)
+		if err != nil {
+			return err
+		}
+
+		blob, err := proto.Marshal(pb)
+		if err != nil {
+			return err
+		}
+
+		data = append(data, blob)
+	}
+
+	return writeFile(perm.filename, data)
 }
 
 func copyPermission(p *idam.Permission) *idam.Permission {

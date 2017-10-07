@@ -4,10 +4,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/homebot/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
-
-// TODO(ppacher): actually store roles to files
 
 // RoleProvider is a idam.RoleProvider persisting roles to files
 type RoleProvider struct {
@@ -19,9 +19,16 @@ type RoleProvider struct {
 
 // NewRoleProvider returns a new file-based role provider
 func NewRoleProvider(name string) idam.RoleProvider {
-	return &RoleProvider{
+	p := &RoleProvider{
 		filename: name,
 	}
+
+	if err := p.readFromFile(); err != nil {
+		// TODO(ppacher) return error instead of panicing
+		panic(err)
+	}
+
+	return p
 }
 
 // New creates a new role and implements idam.RoleProvider
@@ -37,7 +44,7 @@ func (roles *RoleProvider) New(r *idam.Role) (*idam.Role, error) {
 
 	roles.roles = append(roles.roles, newRole)
 
-	return copyRole(newRole), nil
+	return copyRole(newRole), roles.saveToFile()
 }
 
 // Update updates a role and implements idam.RoleProvider
@@ -59,7 +66,7 @@ func (roles *RoleProvider) Update(r *idam.Role) (*idam.Role, error) {
 	role.Updated = time.Now()
 	// TODO(ppacher): should we also allow to update the creator of the role?
 
-	return copyRole(role), nil
+	return copyRole(role), roles.saveToFile()
 }
 
 // Delete deletes a role and implements idam.RoleProvider
@@ -85,7 +92,7 @@ func (roles *RoleProvider) Delete(name string) error {
 		return idam.ErrUnknownRole
 	}
 
-	return nil
+	return roles.saveToFile()
 }
 
 // Get returns the role with the given name and implements idam.RoleProvider
@@ -122,6 +129,53 @@ func (roles *RoleProvider) getRole(n string) (*idam.Role, bool) {
 	}
 
 	return nil, false
+}
+
+func (roles *RoleProvider) readFromFile() error {
+	var data [][]byte
+
+	if err := readFile(roles.filename, &data); err != nil {
+		return err
+	}
+
+	var res []*idam.Role
+	for _, blob := range data {
+		var pb idamV1.Role
+
+		if err := proto.Unmarshal(blob, &pb); err != nil {
+			return err
+		}
+
+		role, err := idam.RoleFromProto(&pb)
+		if err != nil {
+			return err
+		}
+
+		res = append(res, role)
+	}
+
+	roles.roles = res
+	return nil
+}
+
+func (roles *RoleProvider) saveToFile() error {
+	var data [][]byte
+
+	for _, r := range roles.roles {
+		pb, err := idam.RoleProto(r)
+		if err != nil {
+			return err
+		}
+
+		blob, err := proto.Marshal(pb)
+		if err != nil {
+			return err
+		}
+
+		data = append(data, blob)
+	}
+
+	return writeFile(roles.filename, data)
 }
 
 func copyRole(r *idam.Role) *idam.Role {

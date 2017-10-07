@@ -4,10 +4,17 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/gogo/protobuf/proto"
 	"github.com/homebot/idam"
+	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
-// TODO(ppacher): really save the identities to a file
+type identityData struct {
+	Identities [][]byte
+	Passwords  map[string][]byte
+	Secrets    map[string]string
+}
 
 // IdentityProvider is a idam.IdentityProvider that persists identities to
 // files
@@ -22,9 +29,16 @@ type IdentityProvider struct {
 // NewIdentityProvider creates a new identity provider that perisists identities to
 // files
 func NewIdentityProvider(name string) idam.IdentityProvider {
-	return &IdentityProvider{
+	p := &IdentityProvider{
 		filename: name,
 	}
+
+	if err := p.readFromFile(); err != nil {
+		// TODO(ppacher) return error instead of panicing
+		panic(err)
+	}
+
+	return p
 }
 
 // New creates a new identity and implements idam.IdentityProvider
@@ -78,7 +92,12 @@ func (provider *IdentityProvider) New(i idam.Identity, pass []byte) (idam.Identi
 		}
 	}
 
-	return copyIdentiy(newIdentity)
+	copy, err := copyIdentiy(newIdentity)
+	if err != nil {
+		return nil, err
+	}
+
+	return copy, provider.saveToFile()
 }
 
 // Delete deletes an identity and implements idam.IdentityProvider
@@ -127,7 +146,7 @@ func (provider *IdentityProvider) Delete(name string) error {
 		}
 	}
 
-	return nil
+	return provider.saveToFile()
 }
 
 // Update updates an existing identity and implements idam.IdentityProvider
@@ -135,7 +154,12 @@ func (provider *IdentityProvider) Update(i idam.Identity) (idam.Identity, error)
 	provider.lock.Lock()
 	defer provider.lock.Unlock()
 
-	return provider.update(i)
+	copy, err := provider.update(i)
+	if err != nil {
+		return nil, err
+	}
+
+	return copy, provider.saveToFile()
 }
 
 func (provider *IdentityProvider) update(i idam.Identity) (idam.Identity, error) {
@@ -222,7 +246,12 @@ func (provider *IdentityProvider) Get(name string) (idam.Identity, error) {
 		return nil, idam.ErrUnknownIdentity
 	}
 
-	return copyIdentiy(i)
+	copy, err := copyIdentiy(i)
+	if err != nil {
+		return nil, err
+	}
+
+	return copy, provider.saveToFile()
 }
 
 // List lists all identities stored by the provider and implements idam.IdentityProvider
@@ -258,7 +287,7 @@ func (provider *IdentityProvider) ChangePasswordHash(name string, password []byt
 
 	provider.passwords[i.AccountName()] = password
 
-	return nil
+	return provider.saveToFile()
 }
 
 // GetPasswordHash returns the password hash for the identity and implements idam.IdentityProvider
@@ -313,7 +342,7 @@ func (provider *IdentityProvider) Set2FASecret(name, secret string) error {
 
 	provider.secrets[i.AccountName()] = secret
 
-	return nil
+	return provider.saveToFile()
 }
 
 func (provider *IdentityProvider) getIdentity(name string) (idam.Identity, bool) {
@@ -334,6 +363,64 @@ func (provider *IdentityProvider) getGroup(name string) (*idam.Group, bool) {
 
 	grp, ok := i.(*idam.Group)
 	return grp, ok
+}
+
+func (provider *IdentityProvider) readFromFile() error {
+	var data identityData
+
+	if err := readFile(provider.filename, &data); err != nil {
+		return err
+	}
+
+	var identities []idam.Identity
+
+	for _, blob := range data.Identities {
+		var i idamV1.Identity
+
+		if err := proto.Unmarshal(blob, &i); err != nil {
+			return err
+		}
+
+		identity, err := idam.IdentityFromProto(&i)
+		if err != nil {
+			spew.Dump(i)
+			return err
+		}
+
+		identities = append(identities, identity)
+	}
+
+	provider.identities = identities
+	provider.passwords = data.Passwords
+	provider.secrets = data.Secrets
+
+	return nil
+}
+
+func (provider *IdentityProvider) saveToFile() error {
+	var identities [][]byte
+
+	for _, identity := range provider.identities {
+		pb, err := idam.IdentityProto(identity)
+		if err != nil {
+			return err
+		}
+
+		blob, err := proto.Marshal(pb)
+		if err != nil {
+			return err
+		}
+
+		identities = append(identities, blob)
+	}
+
+	data := identityData{
+		Identities: identities,
+		Passwords:  provider.passwords,
+		Secrets:    provider.secrets,
+	}
+
+	return writeFile(provider.filename, data)
 }
 
 func copyIdentiy(i idam.Identity) (idam.Identity, error) {

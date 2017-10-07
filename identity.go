@@ -557,13 +557,11 @@ func IdentityFromProto(p *idamV1.Identity) (Identity, error) {
 		})
 
 		userData := p.GetUser()
-		if userData == nil {
-			return nil, ErrInvalidType
+		if userData != nil {
+			user.FirstName = userData.GetFirstName()
+			user.LastName = userData.GetLastName()
+			user.MailAddresses = userData.GetAdditionalMails()
 		}
-
-		user.FirstName = userData.GetFirstName()
-		user.LastName = userData.GetLastName()
-		user.MailAddresses = userData.GetAdditionalMails()
 
 		if p.GetDisabled() {
 			DisableIdentity(user)

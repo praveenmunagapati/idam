@@ -16,8 +16,8 @@ import (
 
 func main() {
 	identities := file.NewIdentityProvider("./accounts.json")
-	roles := file.NewRoleProvider("")
-	permissions := file.NewPermissionProvider("")
+	roles := file.NewRoleProvider("./roles.json")
+	permissions := file.NewPermissionProvider("./permissions.json")
 
 	list, err := identities.List()
 	if err != nil {

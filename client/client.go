@@ -54,6 +54,10 @@ type AdminClient interface {
 	// LookupIdentities searches for all identities on the server
 	LookupIdentities(ctx context.Context) ([]idam.Identity, error)
 
+	GetIdentityPermission(ctx context.Context, i string) (idam.Identity, []*idam.Permission, error)
+
+	GetRole(ctx context.Context, role string) (*idam.Role, error)
+
 	// CreateRole creates a new role
 	CreateRole(ctx context.Context, role string, permissions []string) error
 
@@ -68,6 +72,8 @@ type AdminClient interface {
 
 	// UnassignRole removes a role from an identity
 	UnassignRole(ctx context.Context, identity string, roles string) error
+
+	GetPermission(ctx context.Context, p string) (*idam.Permission, error)
 
 	// CreatePermission creates a new permission at the IDAM server
 	CreatePermission(ctx context.Context, p string) (*idam.Permission, error)
@@ -304,6 +310,24 @@ func (cli *adminClient) LookupIdentities(ctx context.Context) ([]idam.Identity, 
 	return identities, nil
 }
 
+func (cli *adminClient) GetRole(ctx context.Context, role string) (*idam.Role, error) {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	res, err := client.GetRole(ctx, &idamV1.GetRoleRequest{
+		Name: role,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := idam.RoleFromProto(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return r, nil
+}
+
 // CreateRole creates a new role at the identitiy server
 func (cli *adminClient) CreateRole(ctx context.Context, role string, perms []string) error {
 	client := idamV1.NewPermissionsClient(cli.conn)
@@ -375,6 +399,24 @@ func (cli *adminClient) UnassignRole(ctx context.Context, identity string, role 
 	}
 
 	return nil
+}
+
+func (cli *adminClient) GetPermission(ctx context.Context, p string) (*idam.Permission, error) {
+	client := idamV1.NewPermissionsClient(cli.conn)
+
+	res, err := client.GetPermission(ctx, &idamV1.GetPermissionRequest{
+		Name: p,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := idam.PermissionFromProto(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return r, nil
 }
 
 func (cli *adminClient) CreatePermission(ctx context.Context, p string) (*idam.Permission, error) {
@@ -496,6 +538,36 @@ func (cli *adminClient) GetIdentity(ctx context.Context, name string) (idam.Iden
 	}
 
 	return identity, nil
+}
+
+func (cli *adminClient) GetIdentityPermission(ctx context.Context, name string) (idam.Identity, []*idam.Permission, error) {
+	client := idamV1.NewIdentityServiceClient(cli.conn)
+
+	res, err := client.GetIdentityPermissions(ctx, &idamV1.GetIdentityRequest{
+		Name: name,
+	})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	identity, err := idam.IdentityFromProto(res.GetIdentity())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var p []*idam.Permission
+
+	for _, pb := range res.GetPermissions() {
+		perm, err := idam.PermissionFromProto(pb)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		p = append(p, perm)
+	}
+
+	return identity, p, nil
 }
 
 func (cli *adminClient) AddIdentityToGroup(ctx context.Context, identity, group string) error {

@@ -1,4 +1,4 @@
-// Copyright © 2017 NAME HERE <EMAIL ADDRESS>
+// Copyright © 2017 Patrick Pacher <patrick.pacher@gmail.com>
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -54,9 +54,6 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.idamcli.yaml)")
 	RootCmd.PersistentFlags().StringVarP(&jwtFile, "jwt", "t", token.DefaultTokenFile, "Path to JWT token file")
 	RootCmd.PersistentFlags().StringVarP(&idamServer, "server", "s", "localhost:50053", "Address of the IDAM server")

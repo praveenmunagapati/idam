@@ -1,4 +1,4 @@
-// Copyright © 2017 NAME HERE <EMAIL ADDRESS>
+// Copyright © 2017 Pacher Patrick <patrick.pacher@gmail.com>
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -32,25 +32,27 @@ var profileCmd = &cobra.Command{
 		}
 		defer cli.Close()
 
+		// Fixme
+		adm, err := newAdminClient()
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer adm.Close()
+
 		i, err := cli.GetProfile(context.Background())
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		utils.PrintIdentityDetails(i, nil)
+		utils.PrintIdentityDetails(i, &utils.IdentityDetailOpts{
+			Cli:         adm,
+			Roles:       true,
+			Groups:      true,
+			Permissions: true,
+		})
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(profileCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// profileCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// profileCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

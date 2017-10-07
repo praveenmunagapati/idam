@@ -102,7 +102,17 @@ func (m *Manager) IsResourceOwner(resource, identity string, permissions []strin
 	return false, nil
 }
 
-func (m *Manager) getPermissions(i string) ([]idam.Permission, error) {
+func contains(stack []string, needle string) bool {
+	for _, s := range stack {
+		if s == needle {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m *Manager) getPermissions(i string, checkedGroups ...string) ([]idam.Permission, error) {
 	var res []idam.Permission
 
 	identity, err := m.identities.Get(i)
@@ -128,7 +138,13 @@ func (m *Manager) getPermissions(i string) ([]idam.Permission, error) {
 
 	// now collect group permissions
 	for _, g := range identity.Groups() {
-		groupPermissions, err := m.getPermissions(g)
+		if contains(checkedGroups, g) {
+			continue
+		}
+
+		checkedGroups = append(checkedGroups, g)
+
+		groupPermissions, err := m.getPermissions(g, checkedGroups...)
 		if err != nil {
 			return nil, err
 		}

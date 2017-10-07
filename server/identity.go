@@ -76,6 +76,38 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 	}, nil
 }
 
+func (m *Manager) GetIdentityPermissions(ctx context.Context, in *idamV1.GetIdentityRequest) (*idamV1.GetIdentityPermissionsResponse, error) {
+	i, err := m.identities.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	permissions, err := m.getPermissions(i.AccountName())
+	if err != nil {
+		return nil, err
+	}
+
+	ipb, err := idam.IdentityProto(i)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &idamV1.GetIdentityPermissionsResponse{
+		Identity: ipb,
+	}
+
+	for _, p := range permissions {
+		ppb, err := idam.PermissionProto(p)
+		if err != nil {
+			return nil, err
+		}
+
+		res.Permissions = append(res.Permissions, ppb)
+	}
+
+	return res, nil
+}
+
 // DeleteIdentity implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityRequest) (*empty.Empty, error) {
 	if err := m.identities.Delete(in.GetName()); err != nil {
@@ -87,7 +119,52 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityR
 
 // UpdateIdentity implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityRequest) (*idamV1.UpdateIdentityResponse, error) {
-	return nil, errors.New("not yet implemented")
+	pb := in.GetIdentity()
+
+	i, err := idam.IdentityFromProto(pb)
+	if err != nil {
+		return nil, err
+	}
+
+	original, err := m.identities.Get(i.AccountName())
+	if err != nil {
+		return nil, err
+	}
+
+	// Make sure that all new roles actually exist
+	newRoles, _ := diffSlice(original.Roles(), i.Roles())
+	for _, n := range newRoles {
+		if _, err := m.roles.Get(n); err != nil {
+			return nil, err
+		}
+	}
+
+	// IdentityProvider is responsible for updating group memberships as well
+	res, err := m.identities.Update(i)
+	if err != nil {
+		return nil, err
+	}
+
+	_, token, err := m.identityFromCtx(ctx)
+	if token.HasPermission(idam.AllowWriteIdentityAuth) && in.GetNewPassword() != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(in.GetNewPassword()), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := m.identities.ChangePasswordHash(i.AccountName(), hash); err != nil {
+			return nil, err
+		}
+	}
+
+	resPb, err := idam.IdentityProto(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return &idamV1.UpdateIdentityResponse{
+		Identity: resPb,
+	}, nil
 }
 
 // LookupIdentities implements homebot/api/idam/v1/identity.proto:IdentityService
@@ -282,4 +359,32 @@ func (m *Manager) RemoveRole(ctx context.Context, in *idamV1.UnassignRoleRequest
 	return &idamV1.UnassignRoleResponse{
 		Identity: pb,
 	}, nil
+}
+
+func diffSlice(original []string, updated []string) (added, deleted []string) {
+	// TODO(ppacher) make this more efficient
+Added:
+	for _, u := range updated {
+		for _, o := range original {
+			if o == u {
+				continue Added
+			}
+
+		}
+
+		added = append(added, u)
+	}
+
+Deleted:
+	for _, o := range original {
+		for _, u := range updated {
+			if o == u {
+				continue Deleted
+			}
+		}
+
+		deleted = append(deleted, o)
+	}
+
+	return
 }

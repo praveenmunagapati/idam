@@ -9,6 +9,21 @@ import (
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 )
 
+// GetPermission implements homebot/api/idam/v1/permission.proto:Permission
+func (m *Manager) GetPermission(ctx context.Context, in *idamV1.GetPermissionRequest) (*idamV1.Permission, error) {
+	p, err := m.permissions.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.PermissionProto(*p)
+	if err != nil {
+		return nil, err
+	}
+
+	return pb, nil
+}
+
 // CreatePermission implements homebot/api/idam/v1/permissions.proto:Permission
 func (m *Manager) CreatePermission(ctx context.Context, in *idamV1.CreatePermissionRequest) (*idamV1.Permission, error) {
 	i, _, err := m.identityFromCtx(ctx)
@@ -94,6 +109,20 @@ func (m *Manager) TestAccessPermissions(ctx context.Context, in *idamV1.TestAcce
 	_ = i
 
 	return nil, nil
+}
+
+func (m *Manager) GetRole(ctx context.Context, in *idamV1.GetRoleRequest) (*idamV1.Role, error) {
+	r, err := m.roles.Get(in.GetName())
+	if err != nil {
+		return nil, err
+	}
+
+	pb, err := idam.RoleProto(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return pb, err
 }
 
 // CreateRole implements homebot/api/idam/v1/permissions.proto:Permission
