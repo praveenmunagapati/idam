@@ -10,11 +10,13 @@ import (
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/provider/file"
 	"github.com/homebot/idam/server"
+	"github.com/homebot/insight/logger"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"google.golang.org/grpc"
 )
 
 func main() {
+
 	identities := file.NewIdentityProvider("./accounts.json")
 	roles := file.NewRoleProvider("./roles.json")
 	permissions := file.NewPermissionProvider("./permissions.json")
@@ -73,6 +75,11 @@ func main() {
 		}
 	}
 
+	l, err := logger.NewInsightLogger(logger.WithServiceType("idam"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	srv, err := server.New(identities, roles, permissions, server.WithSharedKey("foobar"))
 	if err != nil {
 		log.Fatal(err)
@@ -89,6 +96,8 @@ func main() {
 		"homebot/api/idam/v1/profile.proto",
 		"homebot/api/idam/v1/auth.proto",
 	)
+
+	policyEnforcer.SetLogger(l)
 
 	if err != nil {
 		log.Fatal(err)

@@ -39,12 +39,12 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"reflect"
 
 	proto "github.com/golang/protobuf/proto"
 	protobuf "github.com/golang/protobuf/protoc-gen-go/descriptor"
 	"github.com/homebot/idam/token"
+	"github.com/homebot/insight/logger"
 	homebot "github.com/homebot/protobuf/pkg/api"
 	idamPolicy "github.com/homebot/protobuf/pkg/api/idam/policy"
 	"google.golang.org/grpc"
@@ -108,12 +108,14 @@ type PolicyEnforcedServer interface {
 // Enforcer enforces homebot API policies
 type Enforcer struct {
 	methods map[string][]Policy
+	logger  logger.Logger
 }
 
 // NewEnforcer creates a new policy enforcer
 func NewEnforcer(files ...string) (*Enforcer, error) {
 	e := &Enforcer{
 		methods: make(map[string][]Policy),
+		logger:  logger.NopLogger{},
 	}
 
 	if err := e.buildPolicies(files); err != nil {
@@ -123,6 +125,18 @@ func NewEnforcer(files ...string) (*Enforcer, error) {
 	return e, nil
 }
 
+// SetLogger sets the logger for the enforcer
+func (e *Enforcer) SetLogger(l logger.Logger) {
+	if l == nil {
+		e.logger = logger.NopLogger{}
+		return
+	}
+
+	e.logger = l
+}
+
+// ServerOptions returns a slice of gRPC server options to enable the
+// enforcer
 func (e *Enforcer) ServerOptions() []grpc.ServerOption {
 	return []grpc.ServerOption{
 		grpc.StreamInterceptor(e.StreamInterceptor),
@@ -170,8 +184,10 @@ func (e *Enforcer) StreamInterceptor(srv interface{}, stream grpc.ServerStream, 
 func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req interface{}, clientStreaming bool, methodName string) (context.Context, error) {
 	policies := e.methods[methodName]
 
+	logger := e.logger.WithResource(methodName)
+
 	if len(policies) == 0 {
-		log.Printf("%s: no policies definied; granting access\n", methodName)
+		logger.Infof("no policies definied; granting access")
 		return ctx, nil
 	}
 
@@ -185,12 +201,14 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 		return ctx, tokenErr
 	}
 
+	logger = logger.WithIdentity(jwt.Name)
+
 	ctx = ContextWithToken(ctx, jwt)
 
 	// Check if there's a policy allowing all authenticated users
 	for _, p := range policies {
 		if p.AllowAuthenticated {
-			log.Printf("%s: granting access to %s: allow-authenticated\n", methodName, jwt.Name)
+			logger.Infof("granting access: allow-authenticated")
 			return ctx, nil
 		}
 	}
@@ -220,7 +238,7 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 
 			if ok {
 				if p.OwnerException.AlwaysAllow {
-					log.Printf("%s: granting access to %s: allow-owner\n", methodName, jwt.Name)
+					logger.Infof("granting access: allow-owner")
 
 					return ctx, nil
 				}
@@ -240,11 +258,12 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 				}
 			}
 
+			logger.Warnf("access denied: permission %q missing", perm)
 			return ctx, errors.New("not authorized")
 		}
 	}
 
-	log.Printf("%s: granting access to %s: all policies ok\n", methodName, jwt.Name)
+	logger.Infof("granting access: all policies ok")
 	return ctx, nil
 }
 
