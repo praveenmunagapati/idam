@@ -21,12 +21,16 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 		return nil, err
 	}
 
+	logger := m.log.WithIdentity(i.AccountName())
+
 	if in.GetIdentity() == nil {
+		logger.Warnf("invalid request")
 		return nil, errors.New("invalid request")
 	}
 
 	identity, err := idam.IdentityFromProto(in.GetIdentity())
 	if err != nil {
+		logger.Warnf("invalid request: %s", err)
 		return nil, err
 	}
 
@@ -37,12 +41,14 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 	if !idam.IsGroup(identity) {
 		hash, err = bcrypt.GenerateFromPassword([]byte(in.GetPassword()), bcrypt.DefaultCost)
 		if err != nil {
+			logger.Warnf("invalid request: %s", err)
 			return nil, err
 		}
 	}
 
 	res, err := m.identities.New(identity, hash)
 	if err != nil {
+		logger.Errorf("failed to create identity: %s", err)
 		return nil, err
 	}
 
@@ -53,11 +59,13 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 			AccountName: res.AccountName(),
 		})
 		if err != nil {
+			logger.Errorf("failed to create identity: %s", err)
 			m.identities.Delete(res.AccountName())
 			return nil, err
 		}
 
 		if err := m.identities.Set2FASecret(res.AccountName(), key.Secret()); err != nil {
+			logger.Errorf("failed to create identity: %s", err)
 			m.identities.Delete(res.AccountName())
 			return nil, err
 		}
@@ -67,8 +75,11 @@ func (m *Manager) CreateIdentity(ctx context.Context, in *idamV1.CreateIdentityR
 
 	pb, err := idam.IdentityProto(res)
 	if err != nil {
+		logger.Errorf("failed to create identity: %s", err)
 		return nil, err
 	}
+
+	logger.WithResource(res.AccountName()).Infof("identity created")
 
 	return &idamV1.CreateIdentityResponse{
 		Identity:   pb,
@@ -110,9 +121,14 @@ func (m *Manager) GetIdentityPermissions(ctx context.Context, in *idamV1.GetIden
 
 // DeleteIdentity implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityRequest) (*empty.Empty, error) {
+	logger := m.getLogger(ctx).WithResource(in.GetName())
+
 	if err := m.identities.Delete(in.GetName()); err != nil {
+		logger.Errorf("failed to delete identity: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("identity deleted")
 
 	return &empty.Empty{}, nil
 }
@@ -120,14 +136,22 @@ func (m *Manager) DeleteIdentity(ctx context.Context, in *idamV1.DeleteIdentityR
 // UpdateIdentity implements homebot/api/idam/v1/identity.proto:IdentityService
 func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityRequest) (*idamV1.UpdateIdentityResponse, error) {
 	pb := in.GetIdentity()
+	if pb == nil {
+		m.log.Errorf("invalid request")
+		return nil, errors.New("invalid request")
+	}
+
+	logger := m.getLogger(ctx).WithResource(in.GetIdentity().GetName())
 
 	i, err := idam.IdentityFromProto(pb)
 	if err != nil {
+		logger.Errorf("%s", err)
 		return nil, err
 	}
 
 	original, err := m.identities.Get(i.AccountName())
 	if err != nil {
+		logger.Errorf("%s", err)
 		return nil, err
 	}
 
@@ -135,6 +159,7 @@ func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityR
 	newRoles, _ := diffSlice(original.Roles(), i.Roles())
 	for _, n := range newRoles {
 		if _, err := m.roles.Get(n); err != nil {
+			logger.Errorf("role %s: %s", n, err)
 			return nil, err
 		}
 	}
@@ -142,6 +167,7 @@ func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityR
 	// IdentityProvider is responsible for updating group memberships as well
 	res, err := m.identities.Update(i)
 	if err != nil {
+		logger.Errorf("identity update failed: %s", err)
 		return nil, err
 	}
 
@@ -149,19 +175,23 @@ func (m *Manager) UpdateIdentity(ctx context.Context, in *idamV1.UpdateIdentityR
 	if token.HasPermission(idam.AllowWriteIdentityAuth) && in.GetNewPassword() != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(in.GetNewPassword()), bcrypt.DefaultCost)
 		if err != nil {
+			logger.Errorf("password update failed: %s", err)
 			return nil, err
 		}
 
 		if err := m.identities.ChangePasswordHash(i.AccountName(), hash); err != nil {
+			logger.Errorf("password update failed: %s", err)
 			return nil, err
 		}
 	}
 
 	resPb, err := idam.IdentityProto(res)
 	if err != nil {
+		logger.Errorf("%s", err)
 		return nil, err
 	}
 
+	logger.Infof("identity updated")
 	return &idamV1.UpdateIdentityResponse{
 		Identity: resPb,
 	}, nil
@@ -236,10 +266,14 @@ func (m *Manager) ListIdentityGroups(ctx context.Context, in *idamV1.ListIdentit
 func (m *Manager) AddIdentityToGroup(ctx context.Context, in *idamV1.AddIdentityToGroupRequest) (*idamV1.Identity, error) {
 	i, err := m.identities.Get(in.GetName())
 	if err != nil {
+		m.log.Errorf("failed to add identity to group: %s", err)
 		return nil, err
 	}
 
+	logger := m.getLogger(ctx).WithResource(i.AccountName())
+
 	if _, err := m.identities.Get(in.GetGroup()); err != nil {
+		logger.Errorf("group error: %s", err)
 		return nil, err
 	}
 
@@ -247,13 +281,17 @@ func (m *Manager) AddIdentityToGroup(ctx context.Context, in *idamV1.AddIdentity
 
 	upd, err := m.identities.Update(i)
 	if err != nil {
+		logger.Errorf("failed to update identity: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.IdentityProto(upd)
 	if err != nil {
+		logger.Errorf("failed to update identity: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("group %s added", in.GetGroup())
 
 	return pb, nil
 }
@@ -261,10 +299,14 @@ func (m *Manager) AddIdentityToGroup(ctx context.Context, in *idamV1.AddIdentity
 func (m *Manager) DeleteIdentityFromGroup(ctx context.Context, in *idamV1.DeleteIdentityFromGroupRequest) (*idamV1.Identity, error) {
 	i, err := m.identities.Get(in.GetName())
 	if err != nil {
+		m.log.Errorf("failed to delete identity from group: %s", err)
 		return nil, err
 	}
 
+	logger := m.getLogger(ctx).WithResource(i.AccountName())
+
 	if _, err := m.identities.Get(in.GetGroup()); err != nil {
+		logger.Errorf("group error: %s", err)
 		return nil, err
 	}
 
@@ -272,13 +314,17 @@ func (m *Manager) DeleteIdentityFromGroup(ctx context.Context, in *idamV1.Delete
 
 	upd, err := m.identities.Update(i)
 	if err != nil {
+		logger.Errorf("identity update failed: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.IdentityProto(upd)
 	if err != nil {
+		logger.Errorf("identity update failed: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("group %q deleted", in.GetGroup())
 
 	return pb, nil
 }
@@ -287,16 +333,21 @@ func (m *Manager) DeleteIdentityFromGroup(ctx context.Context, in *idamV1.Delete
 func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) (*idamV1.AssignRoleResponse, error) {
 	i, err := m.identities.Get(in.GetName())
 	if err != nil {
+		m.log.Errorf("failed to assign role to identity: %s", err)
 		return nil, err
 	}
 
+	logger := m.getLogger(ctx).WithResource(i.AccountName())
+
 	if _, err := m.roles.Get(in.GetRole()); err != nil {
+		logger.Errorf("role error: %s", err)
 		return nil, err
 	}
 
 	if idam.HasRole(i, in.GetRole()) {
 		pb, err := idam.IdentityProto(i)
 		if err != nil {
+			logger.Errorf("failed to convert identity: %s", err)
 			return nil, err
 		}
 
@@ -309,13 +360,17 @@ func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) 
 
 	upd, err := m.identities.Update(i)
 	if err != nil {
+		logger.Errorf("identity update failed: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.IdentityProto(upd)
 	if err != nil {
+		logger.Errorf("failed to convert identity: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("role %q added", in.GetRole())
 
 	return &idamV1.AssignRoleResponse{
 		Identity: pb,
@@ -326,16 +381,21 @@ func (m *Manager) AssignRole(ctx context.Context, in *idamV1.AssignRoleRequest) 
 func (m *Manager) RemoveRole(ctx context.Context, in *idamV1.UnassignRoleRequest) (*idamV1.UnassignRoleResponse, error) {
 	i, err := m.identities.Get(in.GetName())
 	if err != nil {
+		m.log.Errorf("failed to remove role from identity: %s", err)
 		return nil, err
 	}
 
+	logger := m.getLogger(ctx).WithResource(i.AccountName())
+
 	if _, err := m.roles.Get(in.GetRole()); err != nil {
+		logger.Errorf("role error: %s", err)
 		return nil, err
 	}
 
 	if !idam.HasRole(i, in.GetRole()) {
 		pb, err := idam.IdentityProto(i)
 		if err != nil {
+			logger.Errorf("failed to convert identity: %s", err)
 			return nil, err
 		}
 
@@ -348,13 +408,17 @@ func (m *Manager) RemoveRole(ctx context.Context, in *idamV1.UnassignRoleRequest
 
 	upd, err := m.identities.Update(i)
 	if err != nil {
+		logger.Errorf("identity update failed: %s", err)
 		return nil, err
 	}
 
 	pb, err := idam.IdentityProto(upd)
 	if err != nil {
+		logger.Errorf("failed to convert identity: %s", err)
 		return nil, err
 	}
+
+	logger.Infof("role %q deleted", in.GetRole())
 
 	return &idamV1.UnassignRoleResponse{
 		Identity: pb,

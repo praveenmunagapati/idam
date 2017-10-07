@@ -1,10 +1,12 @@
 {
   "Identities": [
     "Cgp1c2VyOmFkbWluEAAaCmlkYW0tYWRtaW4yCwjej93OBRC1wpFIOgsI3o/dzgUQhsORSEIASAA=",
-    "Cg1ncm91cDpteWdyb3VwEAIaCHRlc3Ryb2xlMgwIuZHdzgUQ1bf52QE6DAi5kd3OBRCAuvnZAUIASAA="
+    "Cg1ncm91cDpteWdyb3VwEAIaCHRlc3Ryb2xlMgwIuZHdzgUQ1bf52QE6DAi5kd3OBRCAuvnZAUIASAA=",
+    "Cgh1c2VyOnBhehAAMgwI+JzizgUQq4zX6wI6DAj4nOLOBRCpjdfrAkIASAA="
   ],
   "Passwords": {
-    "user:admin": "JDJhJDEwJGluUWVIQ04xNGw4NW9ucGpVRHJFZ09wUmNFQ1JPeWRHNDY2N0dBNEpUNVFtWHBBczRYSXN1"
+    "user:admin": "JDJhJDEwJGluUWVIQ04xNGw4NW9ucGpVRHJFZ09wUmNFQ1JPeWRHNDY2N0dBNEpUNVFtWHBBczRYSXN1",
+    "user:paz": "JDJhJDEwJEsyQVB5WXNiNm4vdWd1bEJzeVVZNGUzb3lrcHdBYUJyMkNnZGhsYVlVRGcwUzFTRTJsUGpL"
   },
   "Secrets": null
 }

@@ -345,6 +345,8 @@ func DeleteRole(i Identity, role string) {
 	switch v := i.(type) {
 	case *User:
 		v.roles = newRoles
+	case *Group:
+		v.roles = newRoles
 	default:
 		panic(ErrInvalidType)
 	}
