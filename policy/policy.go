@@ -274,7 +274,6 @@ func getProtoField(req interface{}, field string) (string, bool) {
 	rest := ""
 
 	parts := strings.Split(field, ".")
-	fmt.Printf("field path: %v\n", parts)
 
 	if len(parts) > 1 {
 		name = parts[0]
@@ -284,12 +283,8 @@ func getProtoField(req interface{}, field string) (string, bool) {
 	typ := reflect.ValueOf(req).Elem().Type()
 	props := proto.GetProperties(typ)
 
-	fmt.Printf("inspecting %v\n", typ)
-
 	for _, prop := range props.Prop {
-		fmt.Printf("%v.%s\n", typ, prop.Name)
 		if name == prop.OrigName {
-			fmt.Printf("searching for %s in %T\n", name, req)
 			val := reflect.ValueOf(req).Elem().FieldByName(prop.Name)
 
 			if rest != "" {
