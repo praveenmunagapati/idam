@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/homebot/core/log"
 	"github.com/homebot/idam"
 	"github.com/homebot/idam/policy"
 	"github.com/homebot/idam/token"
@@ -165,7 +164,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			logFA = "with"
 		}
 
-		log.Debugf("started authentication %s 2FA", logFA)
+		m.log.Debugf("started authentication %s 2FA", logFA)
 
 		identity = i
 
@@ -225,18 +224,18 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 		}
 
 		if err := idam.CheckPassword(hash, pass); err != nil {
-			log.Infof("authentication failed")
+			m.log.Infof("authentication failed")
 			return err
 		}
 
 		if secret != "" {
 			if err := idam.Check2FA(secret, otp); err != nil {
-				log.Infof("authentication failed")
+				m.log.Infof("authentication failed")
 				return err
 			}
 		}
 
-		log.Infof("authentication successfull")
+		m.log.Infof("authentication successfull")
 
 		issue = true
 	}
@@ -260,7 +259,7 @@ func (m *Manager) StartConversation(stream idamV1.Authenticator_StartConversatio
 			},
 		}
 
-		log.Infof("issuing new JWT")
+		m.log.Infof("issuing new JWT")
 
 		if err := stream.Send(resp); err != nil {
 			return err

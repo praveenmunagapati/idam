@@ -19,7 +19,6 @@ import (
 	"log"
 
 	ui "github.com/homebot/core/cli"
-	"github.com/homebot/core/urn"
 	"github.com/spf13/cobra"
 )
 
@@ -140,9 +139,6 @@ var deleteServiceCmd = &cobra.Command{
 		}
 
 		serviceName := args[0]
-		if u := urn.URN(serviceName); !u.Valid() {
-			serviceName = urn.IdamIdentityResource.BuildURN("", serviceName, serviceName).String()
-		}
 
 		cli, err := newAdminClient()
 		if err != nil {

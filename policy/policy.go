@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"reflect"
+	"strings"
 
 	proto "github.com/golang/protobuf/proto"
 	protobuf "github.com/golang/protobuf/protoc-gen-go/descriptor"
@@ -269,12 +270,31 @@ func (e *Enforcer) enforcePolicy(ctx context.Context, srv interface{}, req inter
 }
 
 func getProtoField(req interface{}, field string) (string, bool) {
+	name := field
+	rest := ""
+
+	parts := strings.Split(field, ".")
+	fmt.Printf("field path: %v\n", parts)
+
+	if len(parts) > 1 {
+		name = parts[0]
+		rest = strings.Join(parts[1:], ".")
+	}
+
 	typ := reflect.ValueOf(req).Elem().Type()
 	props := proto.GetProperties(typ)
 
+	fmt.Printf("inspecting %v\n", typ)
+
 	for _, prop := range props.Prop {
-		if field == prop.OrigName {
+		fmt.Printf("%v.%s\n", typ, prop.Name)
+		if name == prop.OrigName {
+			fmt.Printf("searching for %s in %T\n", name, req)
 			val := reflect.ValueOf(req).Elem().FieldByName(prop.Name)
+
+			if rest != "" {
+				return getProtoField(val.Interface(), rest)
+			}
 
 			return val.String(), true
 		}

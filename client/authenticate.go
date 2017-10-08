@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/homebot/core/urn"
 	idamV1 "github.com/homebot/protobuf/pkg/api/idam/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -15,7 +14,7 @@ import (
 type ConversationHandler func(typ idamV1.ConversationChallengeType) (string, error)
 
 // Authenticate authenticates at the IDAM server
-func Authenticate(ctx context.Context, jwt string, conn *grpc.ClientConn, u urn.URN, conv ConversationHandler) (string, error) {
+func Authenticate(ctx context.Context, jwt string, conn *grpc.ClientConn, u string, conv ConversationHandler) (string, error) {
 	cli := idamV1.NewAuthenticatorClient(conn)
 
 	var md metadata.MD
@@ -73,11 +72,11 @@ func Authenticate(ctx context.Context, jwt string, conn *grpc.ClientConn, u urn.
 	}
 }
 
-func buildUsername(u urn.URN) *idamV1.ConversationResponse {
+func buildUsername(u string) *idamV1.ConversationResponse {
 	return &idamV1.ConversationResponse{
 		Type: idamV1.ConversationChallengeType_USERNAME,
 		Response: &idamV1.ConversationResponse_Username{
-			Username: u.String(),
+			Username: u,
 		},
 	}
 }
